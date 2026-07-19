@@ -41,6 +41,7 @@ async def test_quote_order_and_cancel_flow(api_client: AsyncClient) -> None:
     assert created.status_code == 200
     order = created.json()
     assert order["status"] == "scheduled"
+    assert order["created_at"].endswith("Z")
     assert order["items"][0]["output"] is None
 
     repeated = await api_client.post("/api/v1/orders", json={"quote_id": flexible["quote_id"]})

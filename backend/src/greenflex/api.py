@@ -13,6 +13,7 @@ from greenflex.container import build_container
 from greenflex.domain import DomainError
 from greenflex.logging import configure_logging
 from greenflex.routes import router
+from greenflex.security import LocalSecurityMiddleware
 
 settings = get_settings()
 
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.state.container = build_container()
+    app.add_middleware(LocalSecurityMiddleware)
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "testserver"],

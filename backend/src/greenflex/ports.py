@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -40,9 +40,11 @@ class InferenceProvider(Protocol):
 
 
 class TelemetryProvider(Protocol):
+    source: str
+
     async def idle_power_mw(self, duration_seconds: float = 3.0) -> int | None: ...
 
-    def samples(self) -> AsyncIterator[PowerSample]: ...
+    def samples(self) -> AsyncGenerator[PowerSample]: ...
 
 
 class EnergySignalProvider(Protocol):

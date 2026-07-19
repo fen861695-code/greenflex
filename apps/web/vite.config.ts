@@ -6,6 +6,11 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
+    proxy: {
+      '/api': 'http://127.0.0.1:8000',
+      '/health': 'http://127.0.0.1:8000',
+      '/metrics': 'http://127.0.0.1:8000',
+    },
   },
   preview: {
     host: '127.0.0.1',
@@ -13,5 +18,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    include: ['src/**/*.test.{ts,tsx}'],
+    coverage: {
+      thresholds: { lines: 80 },
+    },
   },
 })

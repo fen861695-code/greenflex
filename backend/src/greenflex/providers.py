@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 from greenflex.domain import DomainError
 from greenflex.ports import GenerationRequest, GenerationResult, PowerSample
@@ -16,10 +16,12 @@ class UnavailableInferenceProvider:
 
 
 class UnavailableTelemetryProvider:
+    source = "telemetry-unavailable"
+
     async def idle_power_mw(self, duration_seconds: float = 3.0) -> int | None:
         del duration_seconds
         return None
 
-    async def samples(self) -> AsyncIterator[PowerSample]:
+    async def samples(self) -> AsyncGenerator[PowerSample]:
         if False:
             yield PowerSample  # pragma: no cover

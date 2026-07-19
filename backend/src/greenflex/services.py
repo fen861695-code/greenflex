@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import hashlib
 import io
 import json
 import math
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -13,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from greenflex.config import get_settings
 from greenflex.container import ServiceContainer
 from greenflex.domain import (
     TERMINAL_ORDER_STATUSES,
@@ -26,6 +29,7 @@ from greenflex.domain import (
 )
 from greenflex.models import (
     AuditEventRecord,
+    ExecutionRecord,
     ModelRecord,
     OrderItemRecord,
     OrderRecord,
@@ -44,6 +48,7 @@ from greenflex.schemas import (
     QuoteOption,
     QuoteRequest,
 )
+from greenflex.telemetry import TelemetryCapture
 from greenflex.units import (
     basis_points_to_percent,
     micro_to_decimal_string,
@@ -134,6 +139,14 @@ async def list_models(
 ) -> list[ModelCatalogItem]:
     available = await container.inference.available_models()
     models = (await session.scalars(select(ModelRecord).where(ModelRecord.enabled.is_(True)))).all()
+    catalog_changed = False
+    for model in models:
+        digest = available.get(model.runtime_name)
+        if digest not in {None, "installed"} and digest != model.digest:
+            model.digest = digest
+            catalog_changed = True
+    if catalog_changed:
+        await session.commit()
     return [
         ModelCatalogItem(
             id=model.id,
@@ -150,7 +163,11 @@ async def list_models(
                 model.output_rate_micro_rmb_per_million
             ),
             available=model.runtime_name in available,
-            availability_detail=available.get(model.runtime_name, "未安装或运行时离线"),
+            availability_detail=(
+                f"已安装 · {available[model.runtime_name][:19]}"
+                if model.runtime_name in available
+                else "未安装或运行时离线"
+            ),
         )
         for model in models
     ]
@@ -164,24 +181,44 @@ async def preview(
     model = await session.get(ModelRecord, request.model_id)
     if model is None or not model.enabled:
         raise DomainError("model_not_found", "指定模型不存在或已停用。", 404)
-    result = await container.inference.generate(
-        GenerationRequest(
-            model_name=model.runtime_name,
-            prompt=request.prompt,
-            system_prompt=request.system_prompt,
-            max_output_tokens=request.max_output_tokens,
-        )
+    available = await container.inference.available_models()
+    if model.runtime_name not in available:
+        raise DomainError("inference_unavailable", "所选本地模型尚未安装或 Ollama 未运行。", 503)
+
+    settings = get_settings()
+    capture = TelemetryCapture(
+        container.telemetry,
+        idle_seconds=settings.telemetry_idle_seconds,
     )
+    async with capture:
+        result = await container.inference.generate(
+            GenerationRequest(
+                model_name=model.runtime_name,
+                prompt=request.prompt,
+                system_prompt=request.system_prompt,
+                max_output_tokens=request.max_output_tokens,
+            )
+        )
+    measurement = capture.measurement()
+    measured = measurement.gross_energy_micro_wh is not None
     return PreviewResponse(
         model_id=model.id,
         output=result.output,
         prompt_tokens=result.prompt_tokens,
         output_tokens=result.output_tokens,
         latency_ms=micro_to_decimal_string(result.duration_us * 1_000, places=3),
-        gross_gpu_energy_wh=None,
-        incremental_gpu_energy_wh=None,
-        telemetry_provenance=Provenance.ESTIMATED,
-        telemetry_source="telemetry-not-connected",
+        gross_gpu_energy_wh=(
+            micro_to_decimal_string(measurement.gross_energy_micro_wh)
+            if measurement.gross_energy_micro_wh is not None
+            else None
+        ),
+        incremental_gpu_energy_wh=(
+            micro_to_decimal_string(measurement.incremental_energy_micro_wh)
+            if measurement.incremental_energy_micro_wh is not None
+            else None
+        ),
+        telemetry_provenance=Provenance.MEASURED if measured else Provenance.ESTIMATED,
+        telemetry_source=measurement.source,
     )
 
 
@@ -296,9 +333,9 @@ def _quote_view(record: QuoteRecord) -> QuoteOption:
         item_count=record.item_count,
         estimated_input_tokens=record.input_tokens_est,
         estimated_output_tokens=record.output_tokens_est,
-        scheduled_start=record.scheduled_start,
-        scheduled_end=record.scheduled_end,
-        deadline=record.deadline,
+        scheduled_start=_aware_utc(record.scheduled_start),
+        scheduled_end=_aware_utc(record.scheduled_end),
+        deadline=_aware_utc(record.deadline) if record.deadline is not None else None,
         base_price_rmb=micro_to_decimal_string(record.base_price_micro_rmb),
         discount_percent=basis_points_to_percent(record.discount_bps),
         discount_rmb=micro_to_decimal_string(record.discount_micro_rmb),
@@ -309,7 +346,7 @@ def _quote_view(record: QuoteRecord) -> QuoteOption:
         renewable_share_percent=basis_points_to_percent(record.renewable_share_bps),
         pricing_version=record.pricing_version,
         signal_version=record.signal_version,
-        expires_at=record.expires_at,
+        expires_at=_aware_utc(record.expires_at),
     )
 
 
@@ -417,8 +454,8 @@ def order_view(order: OrderRecord, *, include_items: bool = False) -> OrderView:
         model_name=order.model.display_name,
         execution_mode=ExecutionMode(order.execution_mode),
         status=OrderStatus(order.status),
-        scheduled_start=order.scheduled_start,
-        deadline=order.deadline,
+        scheduled_start=_aware_utc(order.scheduled_start),
+        deadline=_aware_utc(order.deadline) if order.deadline is not None else None,
         quoted_price_rmb=micro_to_decimal_string(order.quoted_price_micro_rmb),
         actual_price_rmb=(
             micro_to_decimal_string(order.actual_price_micro_rmb)
@@ -444,9 +481,9 @@ def order_view(order: OrderRecord, *, include_items: bool = False) -> OrderView:
             else None
         ),
         content_purged=order.content_purged,
-        created_at=order.created_at,
-        started_at=order.started_at,
-        completed_at=order.completed_at,
+        created_at=_aware_utc(order.created_at),
+        started_at=_aware_utc(order.started_at) if order.started_at is not None else None,
+        completed_at=_aware_utc(order.completed_at) if order.completed_at is not None else None,
         items=[_item_view(item) for item in order.items] if include_items else None,
     )
 
@@ -472,12 +509,30 @@ async def cancel_order(session: AsyncSession, order_id: str) -> OrderView:
     if OrderStatus(order.status) not in {OrderStatus.QUEUED, OrderStatus.SCHEDULED}:
         raise DomainError("order_not_cancellable", "只有排队或已计划订单可以取消。", 409)
     order.status = OrderStatus.CANCELLED.value
-    order.completed_at = utc_now()
+    completed_at = utc_now()
+    order.completed_at = completed_at
+    session.add(
+        AuditEventRecord(
+            id=str(uuid4()),
+            entity_type="order",
+            entity_id=order.id,
+            event_type="order_cancelled",
+            created_at=completed_at,
+        )
+    )
     await session.commit()
     return order_view(order, include_items=True)
 
 
 async def purge_order_content(session: AsyncSession, order_id: str) -> OrderView:
+    return await purge_order_content_at(session, order_id, get_settings().artifact_dir)
+
+
+async def purge_order_content_at(
+    session: AsyncSession,
+    order_id: str,
+    artifact_dir: Path,
+) -> OrderView:
     order = await get_order(session, order_id)
     if OrderStatus(order.status) not in TERMINAL_ORDER_STATUSES:
         raise DomainError("order_not_terminal", "只能清除已结束订单的内容。", 409)
@@ -485,7 +540,27 @@ async def purge_order_content(session: AsyncSession, order_id: str) -> OrderView
         item.prompt = None
         item.system_prompt = None
         item.output = None
+    execution = await session.scalar(
+        select(ExecutionRecord).where(ExecutionRecord.order_id == order.id)
+    )
+    if execution is not None and execution.raw_artifact_path is not None:
+        await _delete_runtime_artifact(execution.raw_artifact_path, artifact_dir)
+        execution.raw_artifact_path = None
     order.content_purged = True
+    purged_at = utc_now()
+    session.add(
+        AuditEventRecord(
+            id=str(uuid4()),
+            entity_type="order",
+            entity_id=order.id,
+            event_type="order_content_purged",
+            metadata_json=json.dumps(
+                {"telemetry_artifact_deleted": execution is not None},
+                separators=(",", ":"),
+            ),
+            created_at=purged_at,
+        )
+    )
     await session.commit()
     return order_view(order, include_items=True)
 
@@ -520,7 +595,7 @@ async def get_passport(session: AsyncSession, passport_id: str) -> PassportView:
         order_id=record.order_id,
         payload_sha256=record.payload_sha256,
         payload=json.loads(record.payload_json),
-        created_at=record.created_at,
+        created_at=_aware_utc(record.created_at),
     )
 
 
@@ -531,3 +606,12 @@ def passport_hash(payload: dict[str, Any]) -> tuple[str, str]:
 
 async def count_orders(session: AsyncSession) -> int:
     return int(await session.scalar(select(func.count()).select_from(OrderRecord)) or 0)
+
+
+async def _delete_runtime_artifact(raw_path: str, artifact_dir: Path) -> None:
+    artifact_root, candidate = await asyncio.gather(
+        asyncio.to_thread(artifact_dir.resolve),
+        asyncio.to_thread(Path(raw_path).resolve),
+    )
+    if candidate.is_relative_to(artifact_root):
+        await asyncio.to_thread(candidate.unlink, missing_ok=True)

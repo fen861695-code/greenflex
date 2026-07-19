@@ -37,6 +37,7 @@ test-results/
 *.tsbuildinfo
 apps/web/*.d.ts
 apps/web/*.js
+!apps/web/eslint.config.js
 
 # Editors and operating systems
 .idea/

@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 $env:PIP_DISABLE_PIP_VERSION_CHECK = '1'
 $Root = Split-Path -Parent $PSScriptRoot
 
@@ -27,6 +28,8 @@ try {
     pnpm.cmd test:web
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     pnpm.cmd build:web
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    pnpm.cmd test:e2e
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     pnpm.cmd audit --audit-level high
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
