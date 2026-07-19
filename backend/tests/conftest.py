@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 from greenflex.api import create_app
 from greenflex.catalog import seed_catalog
 from greenflex.db import Base, get_session
+from greenflex.providers import UnavailableInferenceProvider, UnavailableTelemetryProvider
 
 
 @pytest.fixture
@@ -28,6 +29,8 @@ async def api_client() -> AsyncIterator[AsyncClient]:
             yield session
 
     app = create_app()
+    app.state.container.inference = UnavailableInferenceProvider()
+    app.state.container.telemetry = UnavailableTelemetryProvider()
     app.dependency_overrides[get_session] = override_session
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
