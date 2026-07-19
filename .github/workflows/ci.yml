@@ -42,5 +42,5 @@ jobs:
       - run: pnpm lint:web
       - run: pnpm test:web
       - run: pnpm build:web
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm --dir apps/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e

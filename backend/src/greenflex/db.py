@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from sqlalchemy import event
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -14,6 +16,16 @@ class Base(DeclarativeBase):
 
 
 settings = get_settings()
+
+
+def ensure_sqlite_parent(database_url: str) -> None:
+    url = make_url(database_url)
+    if not url.drivername.startswith("sqlite") or not url.database or url.database == ":memory:":
+        return
+    Path(url.database).expanduser().parent.mkdir(parents=True, exist_ok=True)
+
+
+ensure_sqlite_parent(settings.database_url)
 engine = create_async_engine(settings.database_url)
 SessionFactory = async_sessionmaker(engine, expire_on_commit=False)
 

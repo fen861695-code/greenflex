@@ -1,9 +1,10 @@
 import asyncio
+from pathlib import Path
 
 from sqlalchemy import text
 
 from greenflex.config import Settings
-from greenflex.db import get_session
+from greenflex.db import ensure_sqlite_parent, get_session
 from greenflex.logging import redact_sensitive
 from greenflex.worker import run
 
@@ -16,6 +17,12 @@ def test_settings_exposes_sync_database_url() -> None:
 def test_sensitive_log_values_are_redacted() -> None:
     result = redact_sensitive(None, "event", {"authorization": "private", "status": "ok"})
     assert result == {"authorization": "[REDACTED]", "status": "ok"}
+
+
+def test_sqlite_parent_is_created(tmp_path: Path) -> None:
+    database_path = tmp_path / "nested" / "greenflex.db"
+    ensure_sqlite_parent(f"sqlite+aiosqlite:///{database_path.as_posix()}")
+    assert database_path.parent.is_dir()
 
 
 async def test_session_factory_executes_sql() -> None:
