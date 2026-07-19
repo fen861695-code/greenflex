@@ -29,8 +29,31 @@ test('workspace remains usable without horizontal overflow', async ({ page }, te
   const dimensions = await page.evaluate(() => ({
     innerWidth: window.innerWidth,
     scrollWidth: document.documentElement.scrollWidth,
+    tierControl: (() => {
+      const control = document.querySelector('.segmented.three')
+      if (!control) return null
+      const bounds = control.getBoundingClientRect()
+      const items = Array.from(control.querySelectorAll('label span')).map((item) => {
+        const itemBounds = item.getBoundingClientRect()
+        return { left: itemBounds.left, right: itemBounds.right }
+      })
+      return {
+        left: bounds.left,
+        right: bounds.right,
+        scrollWidth: control.scrollWidth,
+        clientWidth: control.clientWidth,
+        items,
+      }
+    })(),
   }))
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.innerWidth)
+  const tierControl = dimensions.tierControl
+  if (!tierControl) throw new Error('Tier control is missing.')
+  expect(tierControl.scrollWidth).toBeLessThanOrEqual(tierControl.clientWidth)
+  for (const item of tierControl.items) {
+    expect(item.left).toBeGreaterThanOrEqual(tierControl.left)
+    expect(item.right).toBeLessThanOrEqual(tierControl.right)
+  }
   await page.screenshot({ path: testInfo.outputPath('workspace.png'), fullPage: true })
 })
 
