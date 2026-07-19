@@ -3,13 +3,16 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from greenflex.config import get_settings
+from greenflex.container import build_container
+from greenflex.domain import DomainError
 from greenflex.logging import configure_logging
+from greenflex.routes import router
 
 settings = get_settings()
 
@@ -27,10 +30,20 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    app.state.container = build_container()
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "testserver"],
     )
+    app.include_router(router)
+
+    @app.exception_handler(DomainError)
+    async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"code": exc.code, "message": exc.message},
+        )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.web_origin],

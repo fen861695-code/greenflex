@@ -7,6 +7,7 @@ Push-Location "$Root\backend"
 try {
     uv sync --all-groups
     uv run alembic upgrade head
+    uv run python -m greenflex.seed
 }
 finally {
     Pop-Location
