@@ -21,9 +21,10 @@ GreenFlex v0.1.0 delivers a local-first user workflow for open-model text infere
 
 ## Verification
 
-- Python: Ruff, mypy, 25 pytest tests, 81.18% coverage, pip-audit.
+- Python: Ruff, mypy, 26 pytest tests, 81.71% coverage, pip-audit.
 - Web: ESLint, TypeScript, 10 Vitest tests, 81.5% line coverage.
 - E2E: Playwright at 1440x900 and 390x844, no horizontal overflow.
-- Hardware: NVIDIA `nvidia-smi` 500 ms sampling verified on an RTX 3060 Laptop GPU.
+- Hardware: NVIDIA `nvidia-smi` 500 ms sampling verified on an RTX 3060 Laptop GPU; GreenFlex captured measured latency, Token counts, gross GPU energy, and idle-baseline-adjusted energy from a real preview.
+- Models: Ollama 0.32.1 and Qwen2.5 0.5B, 1.5B, and 3B passed local availability checks; direct 1.5B and 3B inference and the GreenFlex 0.5B preview succeeded.
 - Gitleaks 8.30.1: full Git history and tracked release sources passed with zero findings.
-- Ollama model smoke test remained pending because GitHub Release Assets were unreachable from the build machine.
+- GitHub: required CI and security checks passed on protected `main`; Secret Scanning, Push Protection, Dependabot security updates, and Private Vulnerability Reporting are enabled.
