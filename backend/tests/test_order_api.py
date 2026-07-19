@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from httpx import AsyncClient
+from pytest import MonkeyPatch
 
 
 async def test_catalog_lists_three_local_models(api_client: AsyncClient) -> None:
@@ -11,8 +12,13 @@ async def test_catalog_lists_three_local_models(api_client: AsyncClient) -> None
     assert all(item["available"] is False for item in payload)
 
 
-async def test_quote_order_and_cancel_flow(api_client: AsyncClient) -> None:
-    deadline = datetime.now(UTC) + timedelta(hours=9)
+async def test_quote_order_and_cancel_flow(
+    api_client: AsyncClient,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    now = datetime(2026, 7, 19, 9, 0, tzinfo=UTC)
+    monkeypatch.setattr("greenflex.services.utc_now", lambda: now)
+    deadline = now + timedelta(hours=9)
     quote_response = await api_client.post(
         "/api/v1/quotes",
         json={
