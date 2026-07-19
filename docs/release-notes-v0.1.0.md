@@ -25,5 +25,5 @@ GreenFlex v0.1.0 delivers a local-first user workflow for open-model text infere
 - Web: ESLint, TypeScript, 10 Vitest tests, 81.5% line coverage.
 - E2E: Playwright at 1440x900 and 390x844, no horizontal overflow.
 - Hardware: NVIDIA `nvidia-smi` 500 ms sampling verified on an RTX 3060 Laptop GPU.
+- Gitleaks 8.30.1: full Git history and tracked release sources passed with zero findings.
 - Ollama model smoke test remained pending because GitHub Release Assets were unreachable from the build machine.
-- Local Gitleaks staged and full-history scans remained pending for the same network reason; the repository's regular-expression preflight found no high-confidence secret patterns but is not a substitute for Gitleaks.
