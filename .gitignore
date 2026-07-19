@@ -8,6 +8,7 @@
 data/uploads/
 data/results/
 artifacts/
+release/
 logs/
 backups/
 telemetry/*.csv*

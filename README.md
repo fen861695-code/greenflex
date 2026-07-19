@@ -80,6 +80,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check.ps1
 
 该命令执行 Ruff、mypy、pytest、pip-audit、ESLint、TypeScript、Vitest、构建、Playwright 和 pnpm audit。后端及前端核心代码行覆盖率均不低于 80%。
 
+发布前使用 `scripts/generate-release.ps1` 生成 CycloneDX SBOM、依赖/许可证清单和 SHA-256 校验文件；生成物位于已忽略的 `release/` 目录，仅作为 GitHub Release 附件。
+
 ## Security boundary
 
 - 不记录提示词、输出、密钥、Cookie 或 Authorization 头。

@@ -13,6 +13,7 @@ This file is updated from dependency lock files before every release.
 | TanStack Query | Server-state client | MIT | npm dependency |
 | React Hook Form | Web forms | MIT | npm dependency |
 | Lucide | User interface icons | ISC | npm dependency |
+| CycloneDX Python | Release SBOM generator | Apache-2.0 | Development dependency; not shipped at runtime |
 | Ollama | Local model runtime | MIT | Installed separately |
 | Qwen2.5 model weights | Local inference | Apache-2.0 model card terms | Downloaded separately; not redistributed |
 | NVIDIA Management Library | GPU telemetry | NVIDIA terms | Supplied by the installed NVIDIA driver |
