@@ -53,3 +53,31 @@ flowchart LR
 
 The unauthenticated MVP binds to `127.0.0.1` only. Exposing it on a network requires an authentication and tenant-isolation release, which is explicitly outside v0.1.0.
 
+
+## GreenRouter v1 (Smart Routing)
+
+Added in anchor-04. The recommendation module (`greenflex/recommendation.py`)
+implements `RecommendationPolicy` port with `GreenRouterRuleV1`.
+
+### Flow
+1. User selects smart/economy/quality mode in the web UI
+2. Frontend calls `POST /api/v1/recommendations` with task metadata
+3. Backend runs two-phase selection:
+   - Phase 1: Hard constraints (availability, context, deadline, budget, quality floor, task capability)
+   - Phase 2: Multi-objective weighted scoring (quality risk, price, energy, carbon, latency)
+4. Recommendation returned with reason codes, alternatives, and confidence
+5. User accepts → proceed to quote with recommended model; rejects → switch to manual mode
+6. All decisions audited to `recommendation_decisions` table (no prompts stored)
+
+### Ports
+- `RecommendationPolicy` (new): `recommend()` → `RecommendationResult`
+- Uses existing: `PricingPolicy`, `EnergySignalProvider`, `SchedulingPolicy`
+
+### Safety guards
+- Shadow mode by default (recommendation only, no auto-execution)
+- High-risk + low-confidence → forced quality tier fallback
+- Critical quality requirement → quality model only
+- 0.5B only for economy mode + simple tasks
+- All recommendations explainable and overridable
+
+See `docs/adr/0005-green-router-rule-v1.md` for full decision record.

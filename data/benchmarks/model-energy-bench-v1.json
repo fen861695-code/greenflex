@@ -1,0 +1,322 @@
+{
+  "metadata": {
+    "version": "model-energy-bench-v1",
+    "generated_at": "2026-08-06",
+    "sources": [
+      "https://arxiv.org/pdf/2608.00008",
+      "https://arxiv.org/pdf/2607.26571",
+      "https://github.com/NCHWU/sustainableA1/blob/main/report.md",
+      "https://cybernative.ai/t/the-candle-index-what-every-token-actually-costs-in-fire/34019"
+    ],
+    "notes": [
+      "J_per_output_token = GPU energy per generated output token",
+      "Wh_per_1k_output = J_per_output_token * 1000 / 3600",
+      "Consumer GPU values are Q4 quantized; datacenter values are FP16/BF16",
+      "Speed measured in output tokens per second during decode phase"
+    ]
+  },
+  "consumer_gpu": {
+    "hardware": "NVIDIA RTX 4060 Ti 16GB (Ada Lovelace, 8.9 compute capability)",
+    "quantization": "Q4_K_M (Ollama default)",
+    "measurement_method": "NVML/nvidia-smi at 2Hz, 45 prompts per model",
+    "source": "arXiv 2608.00008 Table III",
+    "models": [
+      {
+        "id": "gemma3:1b",
+        "family": "gemma",
+        "parameters_b": 1.0,
+        "context_window": 128000,
+        "idle_power_w": 12.65,
+        "load_mean_power_w": 83.26,
+        "load_peak_power_w": 108.55,
+        "delta_power_w": 70.61,
+        "j_per_output_token": 0.556,
+        "wh_per_1k_output": 0.154,
+        "tokens_per_second": 207.7,
+        "tier": "economy",
+        "confidence": "measured"
+      },
+      {
+        "id": "llama3.2:1b",
+        "family": "llama",
+        "parameters_b": 1.0,
+        "context_window": 128000,
+        "idle_power_w": 10.95,
+        "load_mean_power_w": 82.31,
+        "load_peak_power_w": 108.53,
+        "delta_power_w": 71.36,
+        "j_per_output_token": 0.647,
+        "wh_per_1k_output": 0.180,
+        "tokens_per_second": 173.0,
+        "tier": "economy",
+        "confidence": "measured"
+      },
+      {
+        "id": "qwen2.5:0.5b",
+        "family": "qwen",
+        "parameters_b": 0.5,
+        "context_window": 32768,
+        "idle_power_w": 10.0,
+        "load_mean_power_w": 75.0,
+        "load_peak_power_w": 95.0,
+        "delta_power_w": 65.0,
+        "j_per_output_token": 0.215,
+        "wh_per_1k_output": 0.060,
+        "tokens_per_second": 384.8,
+        "tier": "economy",
+        "confidence": "measured",
+        "source_note": "RTX 3060 measurement from sustainableA1 repo"
+      },
+      {
+        "id": "gemma4:e2b",
+        "family": "gemma",
+        "parameters_b": 2.0,
+        "context_window": 128000,
+        "idle_power_w": 16.67,
+        "load_mean_power_w": 108.71,
+        "load_peak_power_w": 120.94,
+        "delta_power_w": 92.04,
+        "j_per_output_token": 1.093,
+        "wh_per_1k_output": 0.304,
+        "tokens_per_second": 114.0,
+        "tier": "balanced",
+        "confidence": "measured"
+      },
+      {
+        "id": "qwen3.5:2b",
+        "family": "qwen",
+        "parameters_b": 2.0,
+        "context_window": 262000,
+        "idle_power_w": 16.96,
+        "load_mean_power_w": 103.68,
+        "load_peak_power_w": 116.04,
+        "delta_power_w": 86.72,
+        "j_per_output_token": 1.221,
+        "wh_per_1k_output": 0.339,
+        "tokens_per_second": 91.3,
+        "tier": "balanced",
+        "confidence": "measured",
+        "warning": "Default extended thinking mode generates ~10x more tokens"
+      },
+      {
+        "id": "llama3.2:3b",
+        "family": "llama",
+        "parameters_b": 3.0,
+        "context_window": 128000,
+        "idle_power_w": 9.03,
+        "load_mean_power_w": 101.82,
+        "load_peak_power_w": 133.67,
+        "delta_power_w": 92.80,
+        "j_per_output_token": 1.225,
+        "wh_per_1k_output": 0.340,
+        "tokens_per_second": 112.4,
+        "tier": "balanced",
+        "confidence": "measured"
+      },
+      {
+        "id": "qwen2.5:3b",
+        "family": "qwen",
+        "parameters_b": 3.0,
+        "context_window": 32768,
+        "idle_power_w": 19.53,
+        "load_mean_power_w": 106.02,
+        "load_peak_power_w": 129.35,
+        "delta_power_w": 86.48,
+        "j_per_output_token": 1.252,
+        "wh_per_1k_output": 0.348,
+        "tokens_per_second": 107.8,
+        "tier": "balanced",
+        "confidence": "measured"
+      },
+      {
+        "id": "phi4-mini:3.8b",
+        "family": "phi",
+        "parameters_b": 3.8,
+        "context_window": 128000,
+        "idle_power_w": 16.55,
+        "load_mean_power_w": 115.54,
+        "load_peak_power_w": 132.51,
+        "delta_power_w": 98.99,
+        "j_per_output_token": 1.595,
+        "wh_per_1k_output": 0.443,
+        "tokens_per_second": 86.5,
+        "tier": "balanced",
+        "confidence": "measured"
+      },
+      {
+        "id": "gemma3:4b",
+        "family": "gemma",
+        "parameters_b": 4.0,
+        "context_window": 128000,
+        "idle_power_w": 16.59,
+        "load_mean_power_w": 110.25,
+        "load_peak_power_w": 128.13,
+        "delta_power_w": 93.66,
+        "j_per_output_token": 1.671,
+        "wh_per_1k_output": 0.464,
+        "tokens_per_second": 78.5,
+        "tier": "balanced",
+        "confidence": "measured"
+      },
+      {
+        "id": "mistral:7b",
+        "family": "mistral",
+        "parameters_b": 7.0,
+        "context_window": 32768,
+        "idle_power_w": 12.00,
+        "load_mean_power_w": 122.50,
+        "load_peak_power_w": 138.73,
+        "delta_power_w": 110.49,
+        "j_per_output_token": 2.485,
+        "wh_per_1k_output": 0.690,
+        "tokens_per_second": 55.1,
+        "tier": "quality",
+        "confidence": "measured"
+      },
+      {
+        "id": "qwen2.5:7b",
+        "family": "qwen",
+        "parameters_b": 7.0,
+        "context_window": 128000,
+        "idle_power_w": 15.0,
+        "load_mean_power_w": 125.0,
+        "load_peak_power_w": 145.0,
+        "delta_power_w": 110.0,
+        "j_per_output_token": 2.6,
+        "wh_per_1k_output": 0.722,
+        "tokens_per_second": 50.0,
+        "tier": "quality",
+        "confidence": "interpolated",
+        "source_note": "Interpolated from mistral:7b same hardware class"
+      },
+      {
+        "id": "llama3.1:8b",
+        "family": "llama",
+        "parameters_b": 8.0,
+        "context_window": 128000,
+        "idle_power_w": 15.0,
+        "load_mean_power_w": 128.0,
+        "load_peak_power_w": 150.0,
+        "delta_power_w": 113.0,
+        "j_per_output_token": 2.8,
+        "wh_per_1k_output": 0.778,
+        "tokens_per_second": 45.0,
+        "tier": "quality",
+        "confidence": "interpolated"
+      },
+      {
+        "id": "qwen2.5:14b",
+        "family": "qwen",
+        "parameters_b": 14.0,
+        "context_window": 128000,
+        "idle_power_w": 20.0,
+        "load_mean_power_w": 140.0,
+        "load_peak_power_w": 160.0,
+        "delta_power_w": 120.0,
+        "j_per_output_token": 5.2,
+        "wh_per_1k_output": 1.444,
+        "tokens_per_second": 25.0,
+        "tier": "quality",
+        "confidence": "interpolated",
+        "note": "Requires ~10GB VRAM for Q4, may need offloading on 16GB cards"
+      }
+    ]
+  },
+  "datacenter_gpu": {
+    "h100": {
+      "hardware": "NVIDIA H100 SXM 80GB",
+      "precision": "FP16/BF16",
+      "measurement_method": "Analytical model calibrated to measured values (5-27% error)",
+      "source": "arXiv 2607.26571 Table 3",
+      "hardware_constants": {
+        "alpha_tc_pj_per_flop": 0.52,
+        "e_hbm_pj_per_bit": 11.68,
+        "tdp_w": 700
+      },
+      "models": [
+        {
+          "id": "qwen3:1.7b",
+          "parameters_b": 1.7,
+          "mj_per_output_token": 5.304,
+          "mj_per_input_token": 6.365,
+          "wh_per_1k_output": 1.473,
+          "tier": "economy"
+        },
+        {
+          "id": "ministral:14b",
+          "parameters_b": 14.0,
+          "mj_per_output_token": 43.68,
+          "mj_per_input_token": 52.42,
+          "wh_per_1k_output": 12.13,
+          "tier": "balanced"
+        },
+        {
+          "id": "deepseek-coder-v2:16b",
+          "parameters_b": 16.0,
+          "mj_per_output_token": 49.92,
+          "mj_per_input_token": 59.90,
+          "wh_per_1k_output": 13.87,
+          "tier": "balanced"
+        },
+        {
+          "id": "gpt-oss:20b",
+          "parameters_b": 20.0,
+          "mj_per_output_token": 62.40,
+          "mj_per_input_token": 74.88,
+          "wh_per_1k_output": 17.33,
+          "tier": "quality"
+        },
+        {
+          "id": "qwen3:32b",
+          "parameters_b": 32.0,
+          "mj_per_output_token": 99.84,
+          "mj_per_input_token": 119.81,
+          "wh_per_1k_output": 27.73,
+          "tier": "quality"
+        },
+        {
+          "id": "deepseek-r1:32b",
+          "parameters_b": 32.0,
+          "mj_per_output_token": 99.84,
+          "mj_per_input_token": 119.81,
+          "wh_per_1k_output": 27.73,
+          "tier": "quality",
+          "warning": "Reasoning model generates 3-10x more tokens"
+        },
+        {
+          "id": "llama3.3:70b",
+          "parameters_b": 70.0,
+          "mj_per_output_token": 218.4,
+          "mj_per_input_token": 262.1,
+          "wh_per_1k_output": 60.67,
+          "tier": "enterprise"
+        },
+        {
+          "id": "gpt-oss:120b",
+          "parameters_b": 120.0,
+          "mj_per_output_token": 374.4,
+          "mj_per_input_token": 449.3,
+          "wh_per_1k_output": 104.0,
+          "tier": "enterprise"
+        }
+      ]
+    },
+    "a100": {
+      "hardware": "NVIDIA A100 80GB SXM",
+      "precision": "FP16/BF16",
+      "source": "arXiv 2607.26571 Supplementary Table 6",
+      "hardware_constants": {
+        "alpha_tc_pj_per_flop": 0.70,
+        "e_hbm_pj_per_bit": 13.11,
+        "tdp_w": 400
+      },
+      "note": "Approximately 35% higher energy per token than H100"
+    }
+  },
+  "scaling_law": {
+    "description": "Approximate linear scaling: J/token ≈ 6 * N * alpha_eff, where N is parameters in billions",
+    "formula": "J_per_token ≈ 0.35 * N_billion for Q4 consumer GPUs; ≈ 3.1 * N_billion for FP16 H100",
+    "consumer_q4_linear_factor": 0.35,
+    "datacenter_fp16_linear_factor": 3.12
+  }
+}

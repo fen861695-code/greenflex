@@ -15,6 +15,7 @@ class ModelTier(StrEnum):
     ECONOMY = "economy"
     BALANCED = "balanced"
     QUALITY = "quality"
+    ENTERPRISE = "enterprise"
 
 
 class ExecutionMode(StrEnum):
@@ -39,6 +40,52 @@ class ItemStatus(StrEnum):
     FAILED = "failed"
 
 
+class RecommendationMode(StrEnum):
+    """User-facing recommendation mode selector."""
+
+    SMART = "smart"
+    ECONOMY = "economy"
+    QUALITY = "quality"
+    MANUAL = "manual"
+
+
+class QualityRequirement(StrEnum):
+    """User-stated quality requirement for the task."""
+
+    MINIMUM = "minimum"
+    STANDARD = "standard"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class QualityRiskLevel(StrEnum):
+    """Assessed quality risk for a model-task pair."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    VERY_HIGH = "very_high"
+
+
+class TaskType(StrEnum):
+    """Detected or user-specified task type."""
+
+    CLASSIFICATION = "classification"
+    EXTRACTION = "extraction"
+    SUMMARIZATION = "summarization"
+    ANALYSIS = "analysis"
+    GENERATION = "generation"
+    CODE = "code"
+    AUTO = "auto"
+
+
+class ComplexityLevel(StrEnum):
+    ESTIMATED = "estimated"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 TERMINAL_ORDER_STATUSES = {
     OrderStatus.SUCCEEDED,
     OrderStatus.PARTIAL_SUCCESS,
@@ -53,7 +100,7 @@ class EnergySignal:
     price_micro_rmb_per_kwh: int
     carbon_g_per_kwh: int
     renewable_share_bps: int
-    source_version: str = "synthetic-cn-east-v1"
+    source_version: str = "synthetic-cn-east-v2"
     provenance: Provenance = Provenance.SIMULATED
 
 

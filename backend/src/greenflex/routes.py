@@ -21,11 +21,14 @@ from greenflex.schemas import (
     PreviewResponse,
     QuoteRequest,
     QuoteResponse,
+    RecommendationRequest,
+    RecommendationResponse,
 )
 from greenflex.services import (
     cancel_order,
     create_order,
     create_quotes,
+    create_recommendation,
     get_order,
     get_passport,
     list_models,
@@ -60,6 +63,15 @@ async def previews(
     container: ContainerDep,
 ) -> PreviewResponse:
     return await preview(session, container, payload)
+
+
+@router.post("/recommendations", response_model=RecommendationResponse)
+async def recommendations(
+    payload: RecommendationRequest,
+    session: SessionDep,
+    container: ContainerDep,
+) -> RecommendationResponse:
+    return await create_recommendation(session, container, payload)
 
 
 @router.post("/quotes", response_model=QuoteResponse)

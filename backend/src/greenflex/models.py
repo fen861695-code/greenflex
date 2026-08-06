@@ -155,5 +155,74 @@ class AuditEventRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ModelTaskProfileRecord(Base):
+    """Statistical profile of a model on a specific task type."""
+
+    __tablename__ = "model_task_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "model_id",
+            "task_type",
+            "complexity_level",
+            "profile_version",
+            name="uq_profile_model_task_version",
+        ),
+        Index("ix_profile_model", "model_id"),
+        Index("ix_profile_task", "task_type", "complexity_level"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    model_id: Mapped[str] = mapped_column(ForeignKey("model_catalog.id"))
+    task_type: Mapped[str] = mapped_column(String(32))
+    complexity_level: Mapped[str] = mapped_column(String(16))
+    sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    avg_quality_score_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality_std_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_output_tokens_per_1k_input: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_latency_ms_per_1k_output: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_energy_micro_wh_per_1k_output: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_rate_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profile_version: Mapped[str] = mapped_column(String(64))
+    provenance: Mapped[str] = mapped_column(String(24), default="simulated")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RecommendationDecisionRecord(Base):
+    """Audit record of each recommendation decision (no prompts stored)."""
+
+    __tablename__ = "recommendation_decisions"
+    __table_args__ = (
+        Index("ix_recommendation_tenant", "tenant_id"),
+        Index("ix_recommendation_created", "created_at"),
+        Index("ix_recommendation_request_hash", "request_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    recommended_model_id: Mapped[str] = mapped_column(ForeignKey("model_catalog.id"))
+    recommended_tier: Mapped[str] = mapped_column(String(24))
+    recommended_mode: Mapped[str] = mapped_column(String(24))
+    confidence_bps: Mapped[int] = mapped_column(Integer)
+    quality_risk_level: Mapped[str] = mapped_column(String(16))
+    estimated_energy_micro_wh: Mapped[int] = mapped_column(Integer)
+    estimated_price_micro_rmb: Mapped[int] = mapped_column(Integer)
+    estimated_carbon_micro_g: Mapped[int] = mapped_column(Integer)
+    estimated_wait_seconds: Mapped[int] = mapped_column(Integer)
+    estimated_execution_seconds: Mapped[int] = mapped_column(Integer)
+    reason_codes_json: Mapped[str] = mapped_column(Text)
+    alternatives_json: Mapped[str] = mapped_column(Text)
+    policy_version: Mapped[str] = mapped_column(String(64))
+    profile_version: Mapped[str] = mapped_column(String(64))
+    provenance: Mapped[str] = mapped_column(String(24), default="simulated")
+    shadow_mode: Mapped[bool] = mapped_column(Boolean, default=True)
+    user_override_model_id: Mapped[str | None] = mapped_column(
+        ForeignKey("model_catalog.id"), nullable=True
+    )
+    override_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 def model_to_seed_values(item: dict[str, Any]) -> dict[str, Any]:
     return item

@@ -6,6 +6,7 @@ from greenflex.adapters import NvidiaSmiTelemetryProvider, OllamaInferenceProvid
 from greenflex.config import get_settings
 from greenflex.policies import LowestImpactSlotPolicy, TieredPricingPolicy
 from greenflex.ports import InferenceProvider, TelemetryProvider
+from greenflex.recommendation import GreenRouterRuleV1
 from greenflex.signals import SyntheticEnergySignalProvider
 
 
@@ -16,6 +17,7 @@ class ServiceContainer:
     signals: SyntheticEnergySignalProvider
     pricing: TieredPricingPolicy
     scheduling: LowestImpactSlotPolicy
+    recommendation: GreenRouterRuleV1
 
 
 def build_container() -> ServiceContainer:
@@ -31,4 +33,5 @@ def build_container() -> ServiceContainer:
         signals=signals,
         pricing=TieredPricingPolicy(),
         scheduling=LowestImpactSlotPolicy(signals),
+        recommendation=GreenRouterRuleV1(shadow_mode=True),
     )

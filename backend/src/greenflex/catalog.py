@@ -1,65 +1,630 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from greenflex.models import ModelRecord
 
-MODEL_SEED_VERSION = "model-catalog-v1"
+MODEL_SEED_VERSION = "model-catalog-v3"
 
+# Data file paths
+_DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+_BENCHMARK_FILE = _DATA_DIR / "benchmarks" / "model-energy-bench-v1.json"
+
+
+def _load_benchmark_data() -> dict:
+    """Load benchmark data from local JSON file."""
+    if _BENCHMARK_FILE.exists():
+        with open(_BENCHMARK_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _wh_to_micro_wh(wh_per_1k: float) -> int:
+    """Convert Wh/1k tokens to micro-Wh/1k tokens."""
+    return int(wh_per_1k * 1_000_000)
+
+
+# Energy values from data/benchmarks/model-energy-bench-v1.json
+# Source: arXiv 2608.00008 (RTX 4060 Ti, Q4), arXiv 2607.26571 (H100 FP16)
+# Values are conservative for consumer laptop GPUs (RTX 4050/4060 class)
+# Pricing is simulated local pricing (no cloud API costs for local models)
 MODEL_SEEDS = (
+    # === Economy tier: sub-2B models, fast and efficient ===
     {
         "id": "qwen2.5-0.5b-q4",
         "runtime_name": "qwen2.5:0.5b",
         "display_name": "Qwen2.5 0.5B",
         "tier": "economy",
         "parameter_b": "0.5B",
-        "context_limit": 4_096,
-        "recommended_for_json": json.dumps(["分类", "字段提取", "简单改写"], ensure_ascii=False),
-        "input_rate_micro_rmb_per_million": 100_000,
-        "output_rate_micro_rmb_per_million": 300_000,
-        "estimated_tokens_per_second": 55,
-        "estimated_energy_micro_wh_per_1k_output": 800_000,
+        "context_limit": 32_768,
+        "recommended_for_json": json.dumps(["分类", "字段提取", "简单改写", "情感判断"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 50_000,
+        "output_rate_micro_rmb_per_million": 150_000,
+        "estimated_tokens_per_second": 200,
+        "estimated_energy_micro_wh_per_1k_output": 100_000,  # 0.10 Wh/1k (conservative vs measured 0.06)
         "enabled": True,
+        # data_provenance: measured
+        # source_note: RTX 3060: 0.215 J/token = 0.060 Wh/1k; conservative for laptops
     },
+    {
+        "id": "gemma3-1b-q4",
+        "runtime_name": "gemma3:1b",
+        "display_name": "Gemma 3 1B",
+        "tier": "economy",
+        "parameter_b": "1B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["短文本分类", "实体抽取", "简单问答"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 80_000,
+        "output_rate_micro_rmb_per_million": 240_000,
+        "estimated_tokens_per_second": 180,
+        "estimated_energy_micro_wh_per_1k_output": 180_000,  # 0.18 Wh/1k (measured 0.154)
+        "enabled": True,
+        # data_provenance: measured
+        # source_note: RTX 4060 Ti: 0.556 J/token = 0.154 Wh/1k, 207.7 tok/s
+    },
+    {
+        "id": "llama3.2-1b-q4",
+        "runtime_name": "llama3.2:1b",
+        "display_name": "Llama 3.2 1B",
+        "tier": "economy",
+        "parameter_b": "1B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["简单摘要", "格式转换", "关键词提取"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 80_000,
+        "output_rate_micro_rmb_per_million": 240_000,
+        "estimated_tokens_per_second": 150,
+        "estimated_energy_micro_wh_per_1k_output": 200_000,  # 0.20 Wh/1k (measured 0.180)
+        "enabled": True,
+        # data_provenance: measured
+        # source_note: RTX 4060 Ti: 0.647 J/token = 0.180 Wh/1k, 173 tok/s
+    },
+
+    # === Balanced tier: 2-4B models, good quality/efficiency tradeoff ===
     {
         "id": "qwen2.5-1.5b-q4",
         "runtime_name": "qwen2.5:1.5b",
         "display_name": "Qwen2.5 1.5B",
         "tier": "balanced",
         "parameter_b": "1.5B",
-        "context_limit": 4_096,
-        "recommended_for_json": json.dumps(["摘要", "知识问答", "通用写作"], ensure_ascii=False),
-        "input_rate_micro_rmb_per_million": 300_000,
-        "output_rate_micro_rmb_per_million": 800_000,
-        "estimated_tokens_per_second": 38,
-        "estimated_energy_micro_wh_per_1k_output": 1_400_000,
+        "context_limit": 32_768,
+        "recommended_for_json": json.dumps(["摘要", "知识问答", "通用写作", "邮件回复"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 200_000,
+        "output_rate_micro_rmb_per_million": 600_000,
+        "estimated_tokens_per_second": 110,
+        "estimated_energy_micro_wh_per_1k_output": 280_000,  # 0.28 Wh/1k (interpolated)
         "enabled": True,
+        # data_provenance: interpolated
+        # source_note: Interpolated between 1B and 3B Qwen2.5 family
+    },
+    {
+        "id": "gemma4-e2b-q4",
+        "runtime_name": "gemma4:e2b",
+        "display_name": "Gemma 4 E2B",
+        "tier": "balanced",
+        "parameter_b": "2B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["推理任务", "多步分析", "边缘部署"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 250_000,
+        "output_rate_micro_rmb_per_million": 750_000,
+        "estimated_tokens_per_second": 100,
+        "estimated_energy_micro_wh_per_1k_output": 350_000,  # 0.35 Wh/1k (measured 0.304)
+        "enabled": True,
+        # data_provenance: measured
+        # source_note: RTX 4060 Ti: 1.093 J/token = 0.304 Wh/1k, 114 tok/s
+    },
+    {
+        "id": "llama3.2-3b-q4",
+        "runtime_name": "llama3.2:3b",
+        "display_name": "Llama 3.2 3B",
+        "tier": "balanced",
+        "parameter_b": "3B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["内容创作", "逻辑推理", "代码解释"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 350_000,
+        "output_rate_micro_rmb_per_million": 1_000_000,
+        "estimated_tokens_per_second": 95,
+        "estimated_energy_micro_wh_per_1k_output": 380_000,  # 0.38 Wh/1k (measured 0.340)
+        "enabled": True,
+        # data_provenance: measured
+        # source_note: RTX 4060 Ti: 1.225 J/token = 0.340 Wh/1k, 112.4 tok/s
     },
     {
         "id": "qwen2.5-3b-q4",
         "runtime_name": "qwen2.5:3b",
         "display_name": "Qwen2.5 3B",
-        "tier": "quality",
+        "tier": "balanced",
         "parameter_b": "3B",
-        "context_limit": 4_096,
+        "context_limit": 32_768,
         "recommended_for_json": json.dumps(
-            ["复杂摘要", "多步分析", "高质量生成"], ensure_ascii=False
+            ["复杂摘要", "多步分析", "高质量生成", "中文任务"], ensure_ascii=False
         ),
-        "input_rate_micro_rmb_per_million": 600_000,
-        "output_rate_micro_rmb_per_million": 1_500_000,
-        "estimated_tokens_per_second": 24,
-        "estimated_energy_micro_wh_per_1k_output": 2_200_000,
+        "input_rate_micro_rmb_per_million": 400_000,
+        "output_rate_micro_rmb_per_million": 1_100_000,
+        "estimated_tokens_per_second": 90,
+        "estimated_energy_micro_wh_per_1k_output": 400_000,  # 0.40 Wh/1k (measured 0.348)
         "enabled": True,
+        # data_provenance: measured
+        # source_note: RTX 4060 Ti: 1.252 J/token = 0.348 Wh/1k, 107.8 tok/s
+    },
+    {
+        "id": "phi4-mini-3.8b-q4",
+        "runtime_name": "phi4-mini:3.8b",
+        "display_name": "Phi-4 Mini 3.8B",
+        "tier": "balanced",
+        "parameter_b": "3.8B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["推理任务", "数学问题", "逻辑分析"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 450_000,
+        "output_rate_micro_rmb_per_million": 1_300_000,
+        "estimated_tokens_per_second": 75,
+        "estimated_energy_micro_wh_per_1k_output": 480_000,  # 0.48 Wh/1k (measured 0.443)
+        "enabled": True,
+        # data_provenance: measured
+        # source_note: RTX 4060 Ti: 1.595 J/token = 0.443 Wh/1k, 86.5 tok/s
+    },
+
+    # === Quality tier: 7-14B models, requires 8-10GB VRAM ===
+    {
+        "id": "gemma3-4b-q4",
+        "runtime_name": "gemma3:4b",
+        "display_name": "Gemma 3 4B",
+        "tier": "quality",
+        "parameter_b": "4B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["长文理解", "复杂推理", "多模态任务"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 500_000,
+        "output_rate_micro_rmb_per_million": 1_500_000,
+        "estimated_tokens_per_second": 70,
+        "estimated_energy_micro_wh_per_1k_output": 500_000,  # 0.50 Wh/1k (measured 0.464)
+        "enabled": True,
+        # data_provenance: measured
+        # source_note: RTX 4060 Ti: 1.671 J/token = 0.464 Wh/1k, 78.5 tok/s
+    },
+    {
+        "id": "mistral-7b-q4",
+        "runtime_name": "mistral:7b",
+        "display_name": "Mistral 7B",
+        "tier": "quality",
+        "parameter_b": "7B",
+        "context_limit": 32_768,
+        "recommended_for_json": json.dumps(["通用对话", "文本生成", "知识密集型任务"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 700_000,
+        "output_rate_micro_rmb_per_million": 2_000_000,
+        "estimated_tokens_per_second": 50,
+        "estimated_energy_micro_wh_per_1k_output": 750_000,  # 0.75 Wh/1k (measured 0.690)
+        "enabled": True,
+        # data_provenance: measured
+        # source_note: RTX 4060 Ti: 2.485 J/token = 0.690 Wh/1k, 55.1 tok/s
+    },
+    {
+        "id": "qwen2.5-7b-q4",
+        "runtime_name": "qwen2.5:7b",
+        "display_name": "Qwen2.5 7B",
+        "tier": "quality",
+        "parameter_b": "7B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["高质量写作", "代码生成", "深度分析", "中文优化"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 800_000,
+        "output_rate_micro_rmb_per_million": 2_200_000,
+        "estimated_tokens_per_second": 45,
+        "estimated_energy_micro_wh_per_1k_output": 800_000,  # 0.80 Wh/1k (interpolated)
+        "enabled": True,
+        # data_provenance: interpolated
+        # source_note: Interpolated from mistral:7b same hardware class; Qwen family more efficient
+    },
+    {
+        "id": "llama3.1-8b-q4",
+        "runtime_name": "llama3.1:8b",
+        "display_name": "Llama 3.1 8B",
+        "tier": "quality",
+        "parameter_b": "8B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["复杂推理", "长文生成", "通用任务"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 900_000,
+        "output_rate_micro_rmb_per_million": 2_500_000,
+        "estimated_tokens_per_second": 40,
+        "estimated_energy_micro_wh_per_1k_output": 850_000,  # 0.85 Wh/1k (interpolated)
+        "enabled": True,
+        # data_provenance: interpolated
+        # source_note: Requires ~6GB VRAM for Q4; may offload on 8GB cards
+    },
+    {
+        "id": "qwen2.5-14b-q4",
+        "runtime_name": "qwen2.5:14b",
+        "display_name": "Qwen2.5 14B",
+        "tier": "quality",
+        "parameter_b": "14B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["专业写作", "复杂代码", "深度推理", "企业级任务"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 1_500_000,
+        "output_rate_micro_rmb_per_million": 4_000_000,
+        "estimated_tokens_per_second": 22,
+        "estimated_energy_micro_wh_per_1k_output": 1_500_000,  # 1.5 Wh/1k (interpolated)
+        "enabled": False,  # Disabled by default; requires 10GB+ VRAM
+        # data_provenance: interpolated
+        # source_note: Requires ~10GB VRAM for Q4; enable if you have sufficient GPU memory
+    },
+
+    # === Enterprise tier: 32B+ models, requires datacenter or multi-GPU ===
+    {
+        "id": "qwen3-32b-q4",
+        "runtime_name": "qwen3:32b",
+        "display_name": "Qwen3 32B",
+        "tier": "enterprise",
+        "parameter_b": "32B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["企业级部署", "高难度推理", "专业领域"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 4_000_000,
+        "output_rate_micro_rmb_per_million": 10_000_000,
+        "estimated_tokens_per_second": 10,
+        "estimated_energy_micro_wh_per_1k_output": 3_000_000,  # 3.0 Wh/1k consumer (H100: 27.7 Wh/1k FP16)
+        "enabled": False,
+        # data_provenance: analytical
+        # source_note: H100 FP16: 99.8 mJ/token = 27.7 Wh/1k; Q4 consumer ~3 Wh/1k
+    },
+    {
+        "id": "llama3.3-70b-q4",
+        "runtime_name": "llama3.3:70b",
+        "display_name": "Llama 3.3 70B",
+        "tier": "enterprise",
+        "parameter_b": "70B",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["最复杂任务", "研究级推理", "旗舰质量"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 8_000_000,
+        "output_rate_micro_rmb_per_million": 20_000_000,
+        "estimated_tokens_per_second": 4,
+        "estimated_energy_micro_wh_per_1k_output": 6_500_000,  # 6.5 Wh/1k consumer Q4
+        "enabled": False,
+        # data_provenance: analytical
+        # source_note: H100 FP16: 218.4 mJ/token = 60.7 Wh/1k; requires multi-GPU for consumer
+    },
+)
+
+# ============================================================================
+# Cloud API production models (reference/benchmark)
+# Source: data/benchmarks/cloud-production-models-v1.json
+# These represent what AI vendors ACTUALLY deploy in production (H100/H200/B200)
+# They are disabled by default for local inference but can be used for:
+#   - Cost/energy comparison with local models
+#   - Cloud routing (if API keys configured)
+#   - Reference benchmarks
+# Energy values include PUE 1.2 datacenter overhead
+# Pricing: USD -> micro-RMB at ~7.2 CNY/USD (simulated)
+# ============================================================================
+
+# USD to micro-RMB conversion: 1 USD = 7.2 CNY = 7,200,000 micro-RMB
+_USD_TO_MICRO_RMB = 7_200_000
+
+CLOUD_MODEL_SEEDS = (
+    # === Frontier reasoning models (most capable, highest energy) ===
+    {
+        "id": "cloud-openai-gpt-o3-ultra",
+        "runtime_name": "cloud:openai/gpt-o3-ultra",
+        "display_name": "[云API] GPT-o3 Ultra (推理)",
+        "tier": "enterprise",
+        "parameter_b": "~1.8T MoE",
+        "context_limit": 200_000,
+        "recommended_for_json": json.dumps(["最复杂推理", "数学证明", "科学研究"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 15 * _USD_TO_MICRO_RMB,
+        "output_rate_micro_rmb_per_million": 60 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 30,
+        "estimated_energy_micro_wh_per_1k_output": 23_800_000,  # 23.8 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-anthropic-opus-thinking",
+        "runtime_name": "cloud:anthropic/claude-opus-thinking",
+        "display_name": "[云API] Claude Opus Thinking",
+        "tier": "enterprise",
+        "parameter_b": "~400B Dense",
+        "context_limit": 1_000_000,
+        "recommended_for_json": json.dumps(["深度推理", "法律分析", "医疗诊断"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 15 * _USD_TO_MICRO_RMB,
+        "output_rate_micro_rmb_per_million": 75 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 25,
+        "estimated_energy_micro_wh_per_1k_output": 19_600_000,  # 19.6 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-deepseek-r1",
+        "runtime_name": "cloud:deepseek/deepseek-r1",
+        "display_name": "[云API] DeepSeek-R1 (推理)",
+        "tier": "enterprise",
+        "parameter_b": "671B MoE/37B active",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["推理任务", "代码", "数学"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.55 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": int(2.19 * _USD_TO_MICRO_RMB),
+        "estimated_tokens_per_second": 40,
+        "estimated_energy_micro_wh_per_1k_output": 5_000_000,  # 5.0 Wh/1k
+        "enabled": False,
+    },
+
+    # === Frontier general models ===
+    {
+        "id": "cloud-openai-gpt-5-pro",
+        "runtime_name": "cloud:openai/gpt-5-pro",
+        "display_name": "[云API] GPT-5 Pro",
+        "tier": "enterprise",
+        "parameter_b": "~800B MoE",
+        "context_limit": 400_000,
+        "recommended_for_json": json.dumps(["旗舰质量", "企业级", "多模态"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 2 * _USD_TO_MICRO_RMB,
+        "output_rate_micro_rmb_per_million": 8 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 60,
+        "estimated_energy_micro_wh_per_1k_output": 2_600_000,  # 2.6 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-anthropic-opus",
+        "runtime_name": "cloud:anthropic/claude-opus",
+        "display_name": "[云API] Claude Opus 4.6",
+        "tier": "enterprise",
+        "parameter_b": "~400B Dense",
+        "context_limit": 1_000_000,
+        "recommended_for_json": json.dumps(["长文写作", "深度分析", "安全合规"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 5 * _USD_TO_MICRO_RMB,
+        "output_rate_micro_rmb_per_million": 25 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 50,
+        "estimated_energy_micro_wh_per_1k_output": 7_000_000,  # 7.0 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-google-gemini-ultra",
+        "runtime_name": "cloud:google/gemini-ultra",
+        "display_name": "[云API] Gemini 3.1 Ultra",
+        "tier": "enterprise",
+        "parameter_b": "~1.5T MoE",
+        "context_limit": 2_000_000,
+        "recommended_for_json": json.dumps(["超长上下文", "多模态", "百万token"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 4 * _USD_TO_MICRO_RMB,
+        "output_rate_micro_rmb_per_million": 16 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 55,
+        "estimated_energy_micro_wh_per_1k_output": 7_400_000,  # 7.4 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-qwen-max",
+        "runtime_name": "cloud:alibaba/qwen-max",
+        "display_name": "[云API] 通义千问 Max",
+        "tier": "enterprise",
+        "parameter_b": "~1T MoE",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["中文旗舰", "企业应用", "多模态"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(1.6 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": int(6.4 * _USD_TO_MICRO_RMB),
+        "estimated_tokens_per_second": 55,
+        "estimated_energy_micro_wh_per_1k_output": 1_050_000,  # 1.05 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-doubao-pro",
+        "runtime_name": "cloud:bytedance/doubao-pro",
+        "display_name": "[云API] 豆包 Pro 1.5",
+        "tier": "enterprise",
+        "parameter_b": "~800B MoE",
+        "context_limit": 256_000,
+        "recommended_for_json": json.dumps(["中文优化", "高并发", "多模态"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.7 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": int(2.0 * _USD_TO_MICRO_RMB),
+        "estimated_tokens_per_second": 60,
+        "estimated_energy_micro_wh_per_1k_output": 910_000,  # 0.91 Wh/1k
+        "enabled": False,
+    },
+
+    # === High-end production models (daily workhorses) ===
+    {
+        "id": "cloud-openai-gpt-5",
+        "runtime_name": "cloud:openai/gpt-5",
+        "display_name": "[云API] GPT-5",
+        "tier": "quality",
+        "parameter_b": "~500B MoE",
+        "context_limit": 270_000,
+        "recommended_for_json": json.dumps(["通用任务", "代码", "写作"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 1 * _USD_TO_MICRO_RMB,
+        "output_rate_micro_rmb_per_million": 4 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 80,
+        "estimated_energy_micro_wh_per_1k_output": 1_180_000,  # 1.18 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-anthropic-sonnet",
+        "runtime_name": "cloud:anthropic/claude-sonnet",
+        "display_name": "[云API] Claude Sonnet 4.6",
+        "tier": "quality",
+        "parameter_b": "~80B Dense",
+        "context_limit": 200_000,
+        "recommended_for_json": json.dumps(["日常开发", "代码", "写作", "RAG"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": 3 * _USD_TO_MICRO_RMB,
+        "output_rate_micro_rmb_per_million": 15 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 70,
+        "estimated_energy_micro_wh_per_1k_output": 2_180_000,  # 2.18 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-google-gemini-pro",
+        "runtime_name": "cloud:google/gemini-pro",
+        "display_name": "[云API] Gemini 3.1 Pro",
+        "tier": "quality",
+        "parameter_b": "~500B MoE",
+        "context_limit": 1_000_000,
+        "recommended_for_json": json.dumps(["长上下文", "多模态", "通用"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(1.25 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": 5 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 75,
+        "estimated_energy_micro_wh_per_1k_output": 2_430_000,  # 2.43 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-deepseek-v3",
+        "runtime_name": "cloud:deepseek/deepseek-v3",
+        "display_name": "[云API] DeepSeek-V3",
+        "tier": "quality",
+        "parameter_b": "671B MoE/37B active",
+        "context_limit": 64_000,
+        "recommended_for_json": json.dumps(["高性价比", "代码", "通用"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.27 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": int(1.10 * _USD_TO_MICRO_RMB),
+        "estimated_tokens_per_second": 80,
+        "estimated_energy_micro_wh_per_1k_output": 250_000,  # 0.25 Wh/1k (very efficient!)
+        "enabled": False,
+    },
+    {
+        "id": "cloud-qwen-plus",
+        "runtime_name": "cloud:alibaba/qwen-plus",
+        "display_name": "[云API] 通义千问 Plus",
+        "tier": "quality",
+        "parameter_b": "~300B MoE",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["中文通用", "客服", "电商"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.8 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": 2 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 85,
+        "estimated_energy_micro_wh_per_1k_output": 420_000,  # 0.42 Wh/1k
+        "enabled": False,
+    },
+
+    # === Mid-range high-concurrency models ===
+    {
+        "id": "cloud-openai-4o",
+        "runtime_name": "cloud:openai/gpt-4o",
+        "display_name": "[云API] GPT-4o",
+        "tier": "balanced",
+        "parameter_b": "~300B MoE",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["多模态", "实时对话", "通用"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(2.5 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": 10 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 100,
+        "estimated_energy_micro_wh_per_1k_output": 1_130_000,  # 1.13 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-anthropic-haiku",
+        "runtime_name": "cloud:anthropic/claude-haiku",
+        "display_name": "[云API] Claude Haiku 4.5",
+        "tier": "balanced",
+        "parameter_b": "~20B Dense",
+        "context_limit": 200_000,
+        "recommended_for_json": json.dumps(["高并发", "分类", "抽取"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.8 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": 4 * _USD_TO_MICRO_RMB,
+        "estimated_tokens_per_second": 150,
+        "estimated_energy_micro_wh_per_1k_output": 830_000,  # 0.83 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-google-flash",
+        "runtime_name": "cloud:google/gemini-flash",
+        "display_name": "[云API] Gemini 3.1 Flash",
+        "tier": "balanced",
+        "parameter_b": "~100B MoE",
+        "context_limit": 1_000_000,
+        "recommended_for_json": json.dumps(["高速", "长上下文", "多模态"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.15 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": int(0.6 * _USD_TO_MICRO_RMB),
+        "estimated_tokens_per_second": 200,
+        "estimated_energy_micro_wh_per_1k_output": 870_000,  # 0.87 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-qwen-turbo",
+        "runtime_name": "cloud:alibaba/qwen-turbo",
+        "display_name": "[云API] 通义千问 Turbo",
+        "tier": "balanced",
+        "parameter_b": "~100B MoE",
+        "context_limit": 1_000_000,
+        "recommended_for_json": json.dumps(["高并发", "实时", "中文"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.3 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": int(0.9 * _USD_TO_MICRO_RMB),
+        "estimated_tokens_per_second": 200,
+        "estimated_energy_micro_wh_per_1k_output": 220_000,  # 0.22 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-doubao-lite",
+        "runtime_name": "cloud:bytedance/doubao-lite",
+        "display_name": "[云API] 豆包 Lite",
+        "tier": "balanced",
+        "parameter_b": "~150B MoE",
+        "context_limit": 256_000,
+        "recommended_for_json": json.dumps(["高并发", "分类", "客服"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.1 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": int(0.3 * _USD_TO_MICRO_RMB),
+        "estimated_tokens_per_second": 250,
+        "estimated_energy_micro_wh_per_1k_output": 290_000,  # 0.29 Wh/1k
+        "enabled": False,
+    },
+
+    # === Lightweight models ===
+    {
+        "id": "cloud-openai-4o-mini",
+        "runtime_name": "cloud:openai/gpt-4o-mini",
+        "display_name": "[云API] GPT-4o Mini",
+        "tier": "economy",
+        "parameter_b": "~60B MoE",
+        "context_limit": 128_000,
+        "recommended_for_json": json.dumps(["简单任务", "分类", "抽取"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.15 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": int(0.6 * _USD_TO_MICRO_RMB),
+        "estimated_tokens_per_second": 300,
+        "estimated_energy_micro_wh_per_1k_output": 350_000,  # 0.35 Wh/1k
+        "enabled": False,
+    },
+    {
+        "id": "cloud-google-flash-lite",
+        "runtime_name": "cloud:google/gemini-flash-lite",
+        "display_name": "[云API] Gemini Flash Lite",
+        "tier": "economy",
+        "parameter_b": "~10B Dense",
+        "context_limit": 1_000_000,
+        "recommended_for_json": json.dumps(["超高速", "简单分类", "批量处理"], ensure_ascii=False),
+        "input_rate_micro_rmb_per_million": int(0.075 * _USD_TO_MICRO_RMB),
+        "output_rate_micro_rmb_per_million": int(0.3 * _USD_TO_MICRO_RMB),
+        "estimated_tokens_per_second": 400,
+        "estimated_energy_micro_wh_per_1k_output": 420_000,  # 0.42 Wh/1k
+        "enabled": False,
     },
 )
 
 
 async def seed_catalog(session: AsyncSession) -> None:
+    """Seed model catalog from MODEL_SEEDS (local) and CLOUD_MODEL_SEEDS (reference).
+
+    Idempotent: only inserts models not already present.
+    Does NOT update existing models (to preserve user overrides).
+    """
     existing = set((await session.scalars(select(ModelRecord.id))).all())
-    for values in MODEL_SEEDS:
+    for values in MODEL_SEEDS + CLOUD_MODEL_SEEDS:
         if values["id"] not in existing:
             session.add(ModelRecord(**values))
     await session.commit()
+
+
+def get_model_energy_estimate(model_id: str) -> dict | None:
+    """Get energy benchmark data for a model from local data files.
+
+    Returns dict with j_per_token, wh_per_1k, tokens_per_second, confidence, source
+    or None if not found.
+    """
+    data = _load_benchmark_data()
+    if not data:
+        return None
+
+    # Search consumer GPU models
+    for model in data.get("consumer_gpu", {}).get("models", []):
+        if model["id"].replace(":", "-").replace(".", "-") == model_id.replace(":", "-"):
+            return {
+                "j_per_output_token": model["j_per_output_token"],
+                "wh_per_1k_output": model["wh_per_1k_output"],
+                "tokens_per_second": model["tokens_per_second"],
+                "confidence": model["confidence"],
+                "source": "arXiv:2608.00008 (RTX 4060 Ti)",
+                "hardware": "consumer_q4",
+            }
+
+    return None

@@ -4,7 +4,17 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from greenflex.domain import ExecutionMode, ItemStatus, ModelTier, OrderStatus, Provenance
+from greenflex.domain import (
+    ExecutionMode,
+    ItemStatus,
+    ModelTier,
+    OrderStatus,
+    Provenance,
+    QualityRequirement,
+    QualityRiskLevel,
+    RecommendationMode,
+    TaskType,
+)
 
 
 class ApiModel(BaseModel):
@@ -24,6 +34,12 @@ class ModelCatalogItem(ApiModel):
     available: bool
     availability_detail: str
     rate_provenance: Provenance = Provenance.SIMULATED
+    # Energy and carbon footprint
+    estimated_tokens_per_second: int
+    energy_wh_per_1k_output: str
+    carbon_g_per_1k_output: str
+    is_cloud_model: bool = False
+    energy_provenance: str = "estimated"
 
 
 class PreviewRequest(ApiModel):
@@ -153,3 +169,74 @@ class PassportView(ApiModel):
 class ApiError(ApiModel):
     code: str
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Recommendation schemas
+# ---------------------------------------------------------------------------
+
+
+class RecommendationRequest(ApiModel):
+    """Request for model recommendation.
+
+    Note: prompt_preview is used for feature extraction only and is NEVER
+    stored in the database or audit log.
+    """
+
+    mode: RecommendationMode = RecommendationMode.SMART
+    task_type: TaskType = TaskType.AUTO
+    prompt_preview: str | None = Field(default=None, max_length=512)
+    system_prompt_preview: str | None = Field(default=None, max_length=256)
+    estimated_input_tokens: int = Field(default=128, ge=1, le=32_000)
+    estimated_output_tokens: int = Field(default=256, ge=16, le=8_192)
+    item_count: int = Field(default=1, ge=1, le=500)
+    quality_requirement: QualityRequirement = QualityRequirement.STANDARD
+    budget_rmb: float | None = Field(default=None, ge=0, le=1000)
+    deadline: datetime | None = None
+    execution_mode: ExecutionMode = ExecutionMode.IMMEDIATE
+    candidate_model_ids: list[str] | None = None
+
+    @property
+    def budget_micro_rmb(self) -> int | None:
+        if self.budget_rmb is None:
+            return None
+        return int(self.budget_rmb * 1_000_000)
+
+
+class RecommendationAlternative(ApiModel):
+    model_id: str
+    model_name: str
+    tier: ModelTier
+    quality_risk: QualityRiskLevel
+    estimated_price_rmb: str
+    estimated_energy_wh: str
+    estimated_carbon_g: str
+    estimated_execution_seconds: int
+    estimated_wait_seconds: int
+    price_diff_pct: str
+    energy_diff_pct: str
+    reason_codes: list[str]
+
+
+class RecommendationResponse(ApiModel):
+    recommendation_id: str
+    recommended_model_id: str
+    recommended_model_name: str
+    recommended_tier: ModelTier
+    recommended_mode: RecommendationMode
+    recommended_execution_mode: ExecutionMode
+    quality_risk: QualityRiskLevel
+    confidence_bps: int
+    confidence_label: str
+    estimated_price_rmb: str
+    estimated_energy_wh: str
+    estimated_carbon_g: str
+    estimated_execution_seconds: int
+    estimated_wait_seconds: int
+    reason_codes: list[str]
+    reason_summary: str
+    alternatives: list[RecommendationAlternative]
+    policy_version: str
+    profile_version: str
+    provenance: Provenance = Provenance.SIMULATED
+    shadow_mode: bool = True

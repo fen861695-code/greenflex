@@ -27,3 +27,58 @@ Location-based emissions, market-based claims, and avoided emissions remain sepa
 
 Prompts and outputs are operational content. They may exist in the local order store until purged, but never appear in logs, metrics, Passports, Git fixtures, screenshots, or public artifacts.
 
+
+## Recommendation tables (GreenRouter v1)
+
+### model_task_profiles
+Quality and performance profiles for (model, task_type, complexity) tuples.
+Populated by offline evaluation; used by future ML-based router (v2).
+
+| Column | Type | Unit | Provenance |
+|---|---|---|---|
+| id | text PK | | |
+| model_id | text FK → model_catalog.id | | |
+| task_type | text | | |
+| complexity_level | text | | |
+| sample_count | integer | | measured |
+| avg_quality_score_bps | integer | basis points | measured |
+| quality_std_bps | integer | basis points | measured |
+| avg_output_tokens_per_1k_input | integer | tokens | measured |
+| avg_latency_ms_per_1k_output | integer | ms | measured |
+| avg_energy_micro_wh_per_1k_output | integer | micro-Wh | measured |
+| failure_rate_bps | integer | basis points | measured |
+| profile_version | text | | |
+| provenance | text | | |
+| created_at / updated_at | datetime | | |
+
+### recommendation_decisions
+Audit log for every recommendation response. **Never stores prompts or outputs.**
+
+| Column | Type | Unit | Note |
+|---|---|---|---|
+| id | text PK | | recommendation_id |
+| tenant_id | text | | |
+| request_hash | text | | SHA256 of non-content features |
+| recommended_model_id | text FK | | |
+| recommended_tier | text | | economy/balanced/quality |
+| recommended_mode | text | | smart/economy/quality/manual |
+| confidence_bps | integer | basis points | 0-10000 |
+| quality_risk_level | text | | low/medium/high/very_high |
+| estimated_energy_micro_wh | integer | micro-Wh | simulated |
+| estimated_price_micro_rmb | integer | micro-RMB | simulated |
+| estimated_carbon_micro_g | integer | micro-gCO2e | simulated |
+| estimated_wait_seconds | integer | seconds | simulated |
+| estimated_execution_seconds | integer | seconds | simulated |
+| reason_codes_json | text (JSON) | | machine-readable reasons |
+| alternatives_json | text (JSON) | | other candidate models |
+| policy_version | text | | e.g. green-router-rule-v1 |
+| profile_version | text | | |
+| provenance | text | | simulated |
+| shadow_mode | boolean | | true = recommendation only |
+| user_override_model_id | text FK | | if user rejected recommendation |
+| override_reason | text | | |
+| created_at | datetime | | |
+
+**Privacy note**: `request_hash` contains only structural features (task type, mode,
+token counts, quality requirement, boolean flags for budget/deadline). It does NOT
+include prompt text, system prompt, or any user content.

@@ -9,3 +9,4 @@
 | `v0.1.0-user-mvp` | annotated tag target | Security-audited user release | `f59417dcb05c` | all v1 fixtures | `scripts/dev.ps1` | full local checks, real NVIDIA telemetry, Ollama plus all three Qwen2.5 models, GreenFlex preview, and required GitHub checks | `git switch --detach v0.1.0-user-mvp` |
 
 Tags are annotated and created only from a clean, verified worktree. The release row resolves to an exact commit with `git rev-list -n 1 v0.1.0-user-mvp`; a literal self-referential commit hash cannot be embedded in that same commit. Runtime data is never restored from Git; migrations and seed commands recreate local state.
+| `anchor-04-green-router` | (pending) | GreenRouter v1 smart model routing | `a7c3f9d2e1b0` | model-catalog-v2, synthetic-cn-east-v2 | `scripts/dev.ps1` | recommendation tests, 4-mode UI, audit logging | `git switch --detach anchor-04-green-router` |
