@@ -228,6 +228,8 @@ class RecommendationResponse(ApiModel):
     quality_risk: QualityRiskLevel
     confidence_bps: int
     confidence_label: str
+    detected_task_type: TaskType | None = None
+    task_classification_confidence_bps: int | None = None
     estimated_price_rmb: str
     estimated_energy_wh: str
     estimated_carbon_g: str
@@ -240,3 +242,11 @@ class RecommendationResponse(ApiModel):
     profile_version: str
     provenance: Provenance = Provenance.SIMULATED
     shadow_mode: bool = True
+    # --- Energy data provenance (v2, L1-L3 + insufficient only) ---
+    energy_provenance_tier: str = "insufficient_data"
+    energy_confidence_bps: int = 0
+    energy_source_description: str = "No verified benchmark data"
+    # --- Carbon intensity source (v2) ---
+    carbon_intensity_source: str | None = None
+    carbon_intensity_provenance: Provenance | None = None
+    carbon_intensity_g_per_kwh: int | None = None

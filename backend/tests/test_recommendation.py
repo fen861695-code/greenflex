@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+UTC = timezone.utc
 
 import pytest
 
@@ -151,7 +152,7 @@ class TestGreenRouterPolicy:
         models = _make_models()
         # Impossible budget
         req = _make_input(budget_micro_rmb=1)
-        with pytest.raises(DomainError, match="no_feasible_model"):
+        with pytest.raises(DomainError, match="没有满足约束的可用模型"):
             policy.recommend(request=req, available_models=models)
 
     def test_deadline_constraint(self):
@@ -165,7 +166,7 @@ class TestGreenRouterPolicy:
             estimated_output_tokens=10_000,  # would take ~150s on 3B
             deadline=now + timedelta(seconds=1),
         )
-        with pytest.raises(DomainError, match="no_feasible_model"):
+        with pytest.raises(DomainError, match="没有满足约束的可用模型"):
             policy.recommend(request=req, available_models=models, now=now)
 
     def test_context_limit_constraint(self):
@@ -177,7 +178,7 @@ class TestGreenRouterPolicy:
             estimated_input_tokens=5000,  # exceeds 4096 context
             estimated_output_tokens=100,
         )
-        with pytest.raises(DomainError, match="no_feasible_model"):
+        with pytest.raises(DomainError, match="没有满足约束的可用模型"):
             policy.recommend(request=req, available_models=models)
 
     def test_deterministic_results(self):

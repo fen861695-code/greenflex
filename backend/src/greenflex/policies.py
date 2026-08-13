@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+UTC = timezone.utc
 
 from greenflex.domain import DomainError, EnergySignal, ExecutionMode, ScheduleSlot
 from greenflex.ports import EnergySignalProvider

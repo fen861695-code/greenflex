@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
 from pathlib import Path
 
 from sqlalchemy import select
@@ -20,10 +21,13 @@ from greenflex.config import Settings
 from greenflex.container import ServiceContainer
 from greenflex.db import Base
 from greenflex.domain import DomainError, OrderStatus
+from greenflex.energy_estimator import EnergyEstimator
 from greenflex.execution import PersistentOrderWorker
+from greenflex.gpu_calibrator import GpuCalibrator
 from greenflex.models import ExecutionRecord, OrderRecord, PassportRecord
 from greenflex.policies import LowestImpactSlotPolicy, TieredPricingPolicy
 from greenflex.ports import GenerationRequest, GenerationResult, PowerSample
+from greenflex.recommendation import GreenRouterRuleV1
 from greenflex.schemas import BatchItemInput, QuoteRequest
 from greenflex.services import create_order, create_quotes, purge_order_content_at
 from greenflex.signals import SyntheticEnergySignalProvider
@@ -89,6 +93,9 @@ async def test_worker_retries_settles_and_issues_content_free_passport(tmp_path:
         signals=signals,
         pricing=TieredPricingPolicy(),
         scheduling=LowestImpactSlotPolicy(signals),
+        recommendation=GreenRouterRuleV1(shadow_mode=True),
+        energy_estimator=EnergyEstimator(benchmarks=[], gpu_profiles=[]),
+        gpu_calibrator=GpuCalibrator(estimator=EnergyEstimator(benchmarks=[], gpu_profiles=[]), gpu_profiles=[]),
     )
     now = datetime(2026, 7, 19, 9, 0, tzinfo=UTC)
     async with factory() as session:

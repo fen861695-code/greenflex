@@ -1,10 +1,12 @@
 import {
   Activity,
+  Brain,
   ClipboardList,
   FilePlus2,
   Gauge,
   Leaf,
   Menu,
+  ShieldCheck,
   X,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -15,6 +17,8 @@ const navItems = [
   { to: '/preview', label: '模型试跑', icon: Activity, end: false },
   { to: '/orders/new', label: '批量下单', icon: FilePlus2, end: false },
   { to: '/orders', label: '订单', icon: ClipboardList, end: true },
+  { to: '/rl', label: 'RL 路由', icon: Brain, end: false },
+  { to: '/compliance', label: '合规报告', icon: ShieldCheck, end: false },
 ]
 
 export function AppLayout() {

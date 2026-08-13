@@ -123,6 +123,10 @@ class ModelScore:
     estimated_wait_seconds: int
     composite_score: float
     reason_codes: tuple[str, ...] = field(default_factory=tuple)
+    # --- Energy data provenance (L1-L3 + insufficient only) ---
+    energy_provenance_tier: str = "insufficient_data"
+    energy_confidence_bps: int = 0
+    energy_source_description: str = "No verified benchmark data"
 
 
 @dataclass(frozen=True, slots=True)

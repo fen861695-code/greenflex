@@ -1,4 +1,4 @@
-import { Brain, Leaf, ShieldCheck, Zap, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Brain, Leaf, ShieldCheck, Zap, Clock, AlertTriangle, CheckCircle2, Database } from 'lucide-react'
 import type { RecommendationResponse, QualityRiskLevel } from '../api/client'
 
 const RISK_LABELS: Record<QualityRiskLevel, string> = {
@@ -20,6 +20,27 @@ const MODE_LABELS: Record<string, string> = {
   economy: '经济优先',
   quality: '质量优先',
   manual: '手动选择',
+}
+
+// Energy data provenance tier labels and colors (L1-L3 + insufficient only)
+const ENERGY_TIER_LABELS: Record<string, string> = {
+  l1_local_measured: '本地实测',
+  l2_benchmark_match: '公开基准',
+  l3_cross_gpu_normalized: '跨GPU归一化',
+  insufficient_data: '数据不足',
+}
+
+const ENERGY_TIER_COLORS: Record<string, string> = {
+  l1_local_measured: 'provenance-l1',
+  l2_benchmark_match: 'provenance-l2',
+  l3_cross_gpu_normalized: 'provenance-l3',
+  insufficient_data: 'provenance-insufficient',
+}
+
+function confidenceLabel(confidenceBps: number): string {
+  if (confidenceBps >= 8000) return '高'
+  if (confidenceBps >= 5000) return '中'
+  return '低'
 }
 
 interface RecommendationCardProps {
@@ -103,6 +124,35 @@ export function RecommendationCard({
           )}
           <span>质量风险：{RISK_LABELS[recommendation.quality_risk]}</span>
         </div>
+
+        {/* Energy data provenance badge (v2) */}
+        <div className={`energy-provenance ${ENERGY_TIER_COLORS[recommendation.energy_provenance_tier] || 'provenance-insufficient'}`}>
+          <Database aria-hidden="true" />
+          <div>
+            <span className="provenance-label">
+              能耗数据：{ENERGY_TIER_LABELS[recommendation.energy_provenance_tier] || '数据不足'}
+            </span>
+            <span className="provenance-confidence">
+              可信度：{confidenceLabel(recommendation.energy_confidence_bps)}（{recommendation.energy_confidence_bps / 100}%）
+            </span>
+            {recommendation.energy_source_description && (
+              <span className="provenance-source">{recommendation.energy_source_description}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Carbon intensity source badge (v2) */}
+        {recommendation.carbon_intensity_source && (
+          <div className="carbon-source">
+            <Leaf aria-hidden="true" />
+            <span>
+              碳强度来源：{recommendation.carbon_intensity_source}
+              {recommendation.carbon_intensity_provenance === 'simulated' && (
+                <span className="carbon-simulated">（模拟数据）</span>
+              )}
+            </span>
+          </div>
+        )}
 
         {recommendation.alternatives.length > 0 && (
           <details className="rec-alternatives">

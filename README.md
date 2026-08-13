@@ -26,6 +26,83 @@ English summary: GreenFlex is a local-first text inference ordering platform wit
 
 GreenFlex does not claim zero-carbon inference, government certification, or provider-side cloud energy measurement.
 
+### Three-tier energy data provenance (v2)
+
+GreenRouter v2 labels every model's energy data with a confidence tier.
+Only L1-L3 tiers with defensible, auditable data are used for scoring.
+L4 analytical models and L5 FLOPs estimates are intentionally excluded.
+
+| Tier | Source | Confidence | Scoring penalty |
+|------|--------|------------|-----------------|
+| L1 | Local NVML measurement | 95% | 1.00x |
+| L2 | Exact model+GPU benchmark match | 85% | 1.05x |
+| L3 | Cross-GPU normalized benchmark | 65% | 1.15x |
+| — | Insufficient data (not scored) | 0% | 10.0x |
+
+Models without L1-L3 data are marked "数据不足" and receive maximum penalty,
+effectively excluding them from energy-aware recommendation when alternatives
+exist. L1 is always available for any model measured locally.
+
+Built-in benchmark data: 18 curated entries from JouleBench (12 models on
+A100), arXiv 2608.00008 (Qwen2.5 on RTX 4060 Ti), and Watt Counts (70B+
+models on H100). Import more via `scripts/import_benchmarks.py`.
+
+### Real-time grid carbon intensity (v2)
+
+Carbon intensity is fetched from a multi-backend provider chain:
+
+1. **Electricity Maps API** — global real-time (free tier, API key required)
+2. **DynLCA China regional data** — 31 provinces with TOU variation (no key)
+3. **Synthetic fallback** — always available, clearly labeled SIMULATED
+
+Results are cached for 15 minutes. Every response includes `provenance` so
+the UI can distinguish real-time API data from simulated estimates.
+
+### Reinforcement learning router (v2, optional)
+
+GreenFlex includes a lightweight PPO (Proximal Policy Optimization) router that
+learns optimal model selection from historical order data.
+
+- **Modes**: disabled → shadow (observe) → advisory (suggest) → autonomous
+- **Shadow mode by default**: RL observes and logs, never overrides rule-based
+- **Multi-objective reward**: quality 35%, price 20%, energy 15%, carbon 10%,
+  latency 10%, wait 5%, renewable 5%
+- **Pure numpy**: no PyTorch/TensorFlow dependency, suitable for local use
+- **Auditable**: every decision logged with state, action, reward, policy version
+
+API: `GET /api/v1/rl/status`, `POST /api/v1/rl/train`, `POST /api/v1/rl/mode`
+
+### C2PA-compatible Token Passport (v2)
+
+Token Passports include C2PA 1.3-compatible manifests with standard and
+GreenFlex custom assertions:
+
+- `c2pa.actions` — AI generation action with software agent info
+- `c2pa.creative-work` — content type and description
+- `greenflex.model_usage` — model ID, token counts, latency, content hashes
+- `greenflex.energy_usage` — energy, carbon, provenance tier
+- `greenflex.provenance` — passport metadata, data truth boundary
+
+Signed with HMAC-SHA256 (local-first). Contains content hashes only, never raw
+prompts or outputs.
+
+API: `GET /api/v1/passports/{id}/c2pa`, `POST /api/v1/c2pa/verify`
+
+### EU AI Act compliance reporting (v2)
+
+Generate compliance reports aligned with EU AI Act (Regulation (EU) 2024/1689):
+
+- **Article 50**: AI content transparency (C2PA Token Passport)
+- **Article 53**: GPAI obligations — technical docs, training data, copyright,
+  **energy consumption reporting** (GreenFlex strength)
+- **Articles 10-15**: High-risk system obligations (data governance, record-
+  keeping, human oversight, accuracy/robustness/security)
+
+Outputs JSON and Markdown. Includes compliance score, evidence, and actionable
+recommendations.
+
+API: `GET /api/v1/compliance/ai-act`, `GET /api/v1/compliance/ai-act/{model_id}`
+
 ## Architecture
 
 ```text

@@ -150,7 +150,7 @@ export function WorkspacePage() {
     setValue('modelId', recommendation.recommended_model_id)
     setShowRecommendation(false)
     // Now get quotes with the recommended model
-    handleSubmit((values) => quoteMutation.mutate({ ...values, useExactModel: true, modelId: recommendation.recommended_model_id }))()
+    void handleSubmit((values) => quoteMutation.mutate({ ...values, useExactModel: true, modelId: recommendation.recommended_model_id }))()
   }
 
   const handleRejectRecommendation = () => {

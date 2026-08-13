@@ -21,6 +21,7 @@ models/
 
 # Python
 .venv/
+.venv-test/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -31,6 +32,7 @@ htmlcov/
 
 # Node
 node_modules/
+package-lock.json
 dist/
 coverage/
 playwright-report/

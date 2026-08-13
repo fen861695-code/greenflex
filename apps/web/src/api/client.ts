@@ -71,6 +71,141 @@ export interface RecommendationResponse {
   profile_version: string
   provenance: Provenance
   shadow_mode: boolean
+  // --- Energy data provenance (v2) ---
+  energy_provenance_tier: string
+  energy_confidence_bps: number
+  energy_source_description: string
+  // --- Carbon intensity source (v2) ---
+  carbon_intensity_source?: string
+  carbon_intensity_provenance?: Provenance
+  carbon_intensity_g_per_kwh?: number
+}
+
+// ---------------------------------------------------------------------------
+// RL Router types (v2)
+// ---------------------------------------------------------------------------
+export type RLMode = 'disabled' | 'shadow' | 'advisory' | 'autonomous'
+
+export interface RLStatus {
+  enabled: boolean
+  mode?: RLMode
+  session_state?: string
+  policy_version?: string
+  policy_initialized?: boolean
+  total_updates?: number
+  total_transitions?: number
+  buffer_size?: number
+  decision_log_size?: number
+  recent_agreement_rate?: number
+  temperature?: number
+  candidate_models?: string[]
+  recent_rewards?: number[]
+  recent_policy_losses?: number[]
+  message?: string
+}
+
+export interface RLDecision {
+  timestamp: string
+  request_hash: string
+  recommended_model: string
+  baseline_model: string
+  reward: number | null
+  mode: string
+}
+
+export interface RLTrainResult {
+  status: string
+  collected: number
+  required: number
+  loss?: number
+  reward_mean?: number
+}
+
+// ---------------------------------------------------------------------------
+// C2PA types (v2)
+// ---------------------------------------------------------------------------
+export interface C2PAManifest {
+  passport_id: string
+  model_id: string
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  energy_micro_wh: number
+  carbon_micro_g: number
+  order_id: string | null
+  created_at: string
+  c2pa_manifest?: {
+    claim_generator: string
+    format: string
+    title: string
+    assertions: Array<{
+      label: string
+      data: Record<string, unknown>
+    }>
+    signature?: string
+  }
+}
+
+export interface C2PAVerifyResult {
+  valid: boolean
+  error?: string
+  passport_id?: string
+  signature_valid?: boolean
+  assertions_count?: number
+}
+
+// ---------------------------------------------------------------------------
+// EU AI Act Compliance types (v2)
+// ---------------------------------------------------------------------------
+export interface ComplianceHighSeverityIssue {
+  article: string
+  requirement: string
+  status: string
+}
+
+export interface ComplianceSummary {
+  total_checks: number
+  compliant: number
+  partial: number
+  non_compliant: number
+  not_applicable: number
+  applicable_checks: number
+  compliance_score_percent: number
+  risk_level: string
+  high_severity_issues_count: number
+  high_severity_issues: ComplianceHighSeverityIssue[]
+  overall_status: string
+}
+
+export interface CompliancePlatformInfo {
+  version: string
+  deployment_type: string
+  api_bound: string
+  user_authentication: boolean
+  audit_logging: boolean
+  content_purge: boolean
+  c2pa_support: boolean
+  energy_reporting: boolean
+  carbon_reporting: boolean
+}
+
+export interface ComplianceCheck {
+  article: string
+  requirement: string
+  status: 'compliant' | 'partial' | 'non_compliant' | 'not_applicable'
+  evidence: string
+  recommendation?: string
+}
+
+export interface ComplianceReport {
+  report_id: string
+  generated_at: string
+  regulation: string
+  report_version: string
+  summary: ComplianceSummary
+  model_info: Record<string, unknown> | null
+  platform_info: CompliancePlatformInfo
+  checks: ComplianceCheck[]
 }
 
 export function apiMessage(error: unknown): string {

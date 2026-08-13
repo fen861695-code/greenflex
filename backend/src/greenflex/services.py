@@ -6,7 +6,8 @@ import hashlib
 import io
 import json
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -25,6 +26,7 @@ from greenflex.domain import (
     ModelTier,
     OrderStatus,
     Provenance,
+    TaskType,
     utc_now,
 )
 from greenflex.models import (
@@ -41,6 +43,7 @@ from greenflex.recommendation import (
     POLICY_VERSION,
     PROFILE_VERSION,
     GreenRouterRuleV1,
+    TaskClassifier,
     hash_recommendation_request,
 )
 from greenflex.schemas import (
@@ -681,12 +684,25 @@ async def create_recommendation(
     if not models:
         raise DomainError("no_models_available", "没有可用的模型。", 503)
 
+    # Auto-classify task type if set to AUTO and prompt preview is available
+    effective_task_type = request.task_type
+    classifier_confidence_bps = 0
+    if request.task_type == TaskType.AUTO and request.prompt_preview:
+        classifier = TaskClassifier(container.inference)
+        detected_type, detected_confidence = await classifier.classify(
+            request.prompt_preview,
+            request.system_prompt_preview,
+        )
+        if detected_type != TaskType.AUTO:
+            effective_task_type = detected_type
+            classifier_confidence_bps = detected_confidence
+
     # Build recommendation input
     from greenflex.ports import RecommendationInput
 
     rec_input = RecommendationInput(
         mode=request.mode,
-        task_type=request.task_type,
+        task_type=effective_task_type,
         estimated_input_tokens=request.estimated_input_tokens,
         estimated_output_tokens=request.estimated_output_tokens,
         item_count=request.item_count,
@@ -710,6 +726,7 @@ async def create_recommendation(
         price_micro_rmb_per_kwh=signal.price_micro_rmb_per_kwh,
         queue_depth=0,  # TODO: count queued orders
         shadow_mode=container.recommendation._shadow_mode,
+        energy_estimator=getattr(container, "energy_estimator", None),
     )
 
     # Run recommendation
@@ -818,6 +835,12 @@ async def create_recommendation(
         quality_risk=result.quality_risk,
         confidence_bps=result.confidence_bps,
         confidence_label=confidence_label,
+        detected_task_type=(
+            effective_task_type if classifier_confidence_bps > 0 else None
+        ),
+        task_classification_confidence_bps=(
+            classifier_confidence_bps if classifier_confidence_bps > 0 else None
+        ),
         estimated_price_rmb=micro_to_decimal_string(result.estimated_price_micro_rmb),
         estimated_energy_wh=micro_to_decimal_string(result.estimated_energy_micro_wh),
         estimated_carbon_g=micro_to_decimal_string(result.estimated_carbon_micro_g),
@@ -829,4 +852,12 @@ async def create_recommendation(
         policy_version=POLICY_VERSION,
         profile_version=PROFILE_VERSION,
         shadow_mode=result.shadow_mode,
+        # --- Energy data provenance (v2, L1-L3 + insufficient only) ---
+        energy_provenance_tier=getattr(recommended_model, "energy_data_provenance", "insufficient_data"),
+        energy_confidence_bps=getattr(recommended_model, "energy_confidence_bps", 0) or 0,
+        energy_source_description=getattr(recommended_model, "energy_data_source", "No verified benchmark data") or "No verified benchmark data",
+        # --- Carbon intensity source (v2) ---
+        carbon_intensity_source=signal.source_version,
+        carbon_intensity_provenance=signal.provenance,
+        carbon_intensity_g_per_kwh=signal.carbon_g_per_kwh,
     )

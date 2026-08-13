@@ -51,6 +51,104 @@ Populated by offline evaluation; used by future ML-based router (v2).
 | provenance | text | | |
 | created_at / updated_at | datetime | | |
 
+## Energy data provenance (GreenRouter v2)
+
+### model_catalog extensions
+
+Energy data confidence metadata added to each model entry.
+
+| Column | Type | Unit | Provenance | Notes |
+|---|---|---|---|---|
+| energy_data_provenance | text | | | `l1_local_measured`, `l2_benchmark_match`, `l3_cross_gpu_normalized`, or `insufficient_data` |
+| energy_data_source | text | | | Human-readable source description |
+| energy_confidence_bps | integer | basis points | | 0 = no data, 9500 = 95% confidence |
+| reference_gpu_model | text | | | GPU model of the benchmark data |
+| parameter_count_b | float | billions | | Parsed parameter count |
+| quantization_bits | integer | bits | | 4 = Q4, 8 = Q8, 16 = FP16 |
+| architecture_family | text | | | e.g., qwen2.5, llama3, gemma2 |
+
+**Provenance tiers (L1-L3 + insufficient only):**
+- **L1** (`l1_local_measured`): Measured locally via NVML. 95% confidence, 1.0x penalty.
+- **L2** (`l2_benchmark_match`): Exact model+GPU match in public benchmark. 85% confidence, 1.05x penalty.
+- **L3** (`l3_cross_gpu_normalized`): Same architecture family, normalized across GPUs. 65% confidence, 1.15x penalty.
+- **Insufficient** (`insufficient_data`): No L1-L3 data available. 0% confidence, 10.0x penalty (effectively excluded from energy scoring).
+
+L4 analytical models and L5 FLOPs estimates are intentionally excluded from recommendation scoring.
+
+### gpu_energy_profiles
+
+Per-GPU calibration coefficients for cross-GPU energy normalization.
+
+| Column | Type | Unit | Notes |
+|---|---|---|---|
+| id | text PK | | |
+| gpu_model | text unique | | e.g., rtx-3060-laptop, a100-80gb |
+| gpu_uuid | text | | NVIDIA GPU UUID (optional) |
+| tdp_watts | integer | W | Thermal design power |
+| memory_bandwidth_gbps | float | GB/s | For inference efficiency estimation |
+| compute_tflops_fp16 | float | TFLOPS | FP16 compute throughput |
+| efficiency_factor | float | | Calibration factor (1.0 = baseline) |
+| calibration_sample_count | integer | | Number of local measurements |
+| last_calibrated_at | datetime | | |
+| calibration_provenance | text | | `factory_spec` or `local_calibrated` |
+| created_at / updated_at | datetime | | |
+
+### model_energy_benchmarks
+
+Curated public benchmark data for L2/L3 energy estimation.
+
+| Column | Type | Unit | Notes |
+|---|---|---|---|
+| id | text PK | | |
+| model_family | text | | e.g., qwen2.5, llama3 |
+| parameter_count_b | float | billions | |
+| quantization_bits | integer | bits | |
+| gpu_model | text | | |
+| gpu_architecture | text | | e.g., ampere, hopper |
+| avg_power_watts | float | W | |
+| throughput_tokens_per_second | float | tok/s | |
+| energy_joules_per_token | float | J/tok | |
+| energy_wh_per_1k_output | float | Wh/1k | |
+| batch_size | integer | | |
+| serving_mode | text | | `batch` or `server` |
+| dataset_source | text | | e.g., joulebench, watt-counts |
+| dataset_version | text | | |
+| provenance_tier | text | | Always `l2_benchmark_match` |
+| confidence_bps | integer | basis points | |
+| measurement_method | text | | `nvml` or `estimated` |
+| raw_reference_url | text | | Source paper/repo URL |
+| created_at | datetime | | |
+
+**Built-in datasets (18 entries):**
+- JouleBench: 12 models on A100 80GB PCIe, FP16, NVML measured
+- arXiv 2608.00008: Qwen2.5 0.5B/3B on RTX 4060 Ti, Q4
+- Watt Counts: Llama3 70B / Qwen2.5 72B on H100
+- Bench360: Mistral 7B on RTX 3090
+
+### carbon_intensity_cache
+
+Cached real-time grid carbon intensity data.
+
+| Column | Type | Unit | Notes |
+|---|---|---|---|
+| id | text PK | | |
+| region_code | text | | e.g., CN-HN (Hunan) |
+| zone | text | | Electricity Maps zone, e.g., CN-CS |
+| interval_start | datetime | | |
+| carbon_g_per_kwh | integer | gCO2/kWh | |
+| renewable_share_bps | integer | basis points | |
+| power_mix_json | text | | JSON of generation mix |
+| data_source | text | | `electricity_maps`, `dynlca`, or `fallback` |
+| data_source_version | text | | |
+| provenance | text | | `measured`, `estimated`, or `simulated` |
+| fetched_at | datetime | | |
+| expires_at | datetime | | Cache TTL (default 15 min) |
+
+**Provider chain (priority order):**
+1. Electricity Maps API (real-time, requires API key)
+2. DynLCA (China regional grid baselines with time-of-day adjustment)
+3. Synthetic fallback (simulated, clearly labeled)
+
 ### recommendation_decisions
 Audit log for every recommendation response. **Never stores prompts or outputs.**
 
