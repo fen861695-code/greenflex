@@ -219,3 +219,61 @@ export function apiMessage(error: unknown): string {
   }
   return '请求未完成，请确认本地 API 正在运行。'
 }
+
+// ---------------------------------------------------------------------------
+// Unified Solution types (one-stop: input → auto-detect → priced options)
+// ---------------------------------------------------------------------------
+
+export type OutputLength = 'short' | 'medium' | 'long'
+export type ComplexityLevel = 'low' | 'medium' | 'high'
+
+export interface SolutionOption {
+  rank: number
+  is_recommended: boolean
+  model_id: string
+  model_name: string
+  tier: ModelTier
+  quality_risk: QualityRiskLevel
+  complexity_level: ComplexityLevel
+  detected_task_type: TaskType
+  task_classification_confidence_bps: number | null
+  estimated_input_tokens: number
+  estimated_output_tokens: number
+  item_count: number
+  quote_id: string
+  execution_mode: string
+  total_price_rmb: string
+  base_price_rmb: string
+  discount_percent: string
+  facility_energy_wh_est: string
+  carbon_g_est: string
+  renewable_share_percent: string
+  estimated_execution_seconds: number
+  estimated_wait_seconds: number
+  scheduled_start: string
+  scheduled_end: string
+  expires_at: string
+  reason_codes: string[]
+  reason_summary: string
+  confidence_bps: number
+  confidence_label: string
+  pricing_version: string
+  signal_version: string
+  energy_provenance_tier: string
+  energy_confidence_bps: number
+  carbon_intensity_source: string
+  carbon_intensity_g_per_kwh: number
+}
+
+export interface SolutionResponse {
+  solution_id: string
+  detected_task_type: TaskType
+  task_classification_confidence_bps: number | null
+  complexity_level: ComplexityLevel
+  estimated_input_tokens: number
+  estimated_output_tokens: number
+  item_count: number
+  options: SolutionOption[]
+  policy_version: string
+  profile_version: string
+}

@@ -134,6 +134,53 @@ class ComplexityLevel(StrEnum):
     HIGH = "high"
 
 
+class OutputLength(StrEnum):
+    """User-facing output length preference — mapped to token counts by task type."""
+    SHORT = "short"
+    MEDIUM = "medium"
+    LONG = "long"
+
+
+# Output token mapping: (task_type, output_length) -> max_output_tokens
+# Derived from typical output lengths for each task category.
+OUTPUT_TOKEN_MAP: dict[tuple[TaskType, OutputLength], int] = {
+    # Classification: label-only output
+    (TaskType.CLASSIFICATION, OutputLength.SHORT): 16,
+    (TaskType.CLASSIFICATION, OutputLength.MEDIUM): 32,
+    (TaskType.CLASSIFICATION, OutputLength.LONG): 64,
+    # Extraction: structured fields
+    (TaskType.EXTRACTION, OutputLength.SHORT): 64,
+    (TaskType.EXTRACTION, OutputLength.MEDIUM): 128,
+    (TaskType.EXTRACTION, OutputLength.LONG): 256,
+    # Summarization: condensed summary
+    (TaskType.SUMMARIZATION, OutputLength.SHORT): 128,
+    (TaskType.SUMMARIZATION, OutputLength.MEDIUM): 256,
+    (TaskType.SUMMARIZATION, OutputLength.LONG): 512,
+    # Analysis: multi-step reasoning
+    (TaskType.ANALYSIS, OutputLength.SHORT): 256,
+    (TaskType.ANALYSIS, OutputLength.MEDIUM): 512,
+    (TaskType.ANALYSIS, OutputLength.LONG): 1024,
+    # Generation: writing / translation / rewriting
+    (TaskType.GENERATION, OutputLength.SHORT): 256,
+    (TaskType.GENERATION, OutputLength.MEDIUM): 512,
+    (TaskType.GENERATION, OutputLength.LONG): 1024,
+    # Code: code generation with explanation
+    (TaskType.CODE, OutputLength.SHORT): 256,
+    (TaskType.CODE, OutputLength.MEDIUM): 512,
+    (TaskType.CODE, OutputLength.LONG): 1024,
+    # AUTO fallback — use generation-like defaults
+    (TaskType.AUTO, OutputLength.SHORT): 256,
+    (TaskType.AUTO, OutputLength.MEDIUM): 512,
+    (TaskType.AUTO, OutputLength.LONG): 1024,
+}
+
+# Maximum output tokens per model tier (hard ceiling, context-aware)
+# Raised from 2048 to 8192 — energy/cost are token-metered, so users may
+# trade longer output for higher energy/cost. Context limit still enforces
+# input+output <= model.context_limit as a hard constraint.
+MAX_OUTPUT_TOKENS_CEILING: int = 8192
+
+
 TERMINAL_ORDER_STATUSES = {
     OrderStatus.SUCCEEDED,
     OrderStatus.PARTIAL_SUCCESS,

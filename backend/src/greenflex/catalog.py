@@ -46,7 +46,7 @@ MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 150_000,
         "estimated_tokens_per_second": 200,
         "estimated_energy_micro_wh_per_1k_output": 100_000,  # 0.10 Wh/1k (conservative vs measured 0.06)
-        "enabled": True,
+        "enabled": False,  # Hidden from user selection per product decision
         # data_provenance: measured
         # source_note: RTX 3060: 0.215 J/token = 0.060 Wh/1k; conservative for laptops
     },
@@ -96,7 +96,7 @@ MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 600_000,
         "estimated_tokens_per_second": 110,
         "estimated_energy_micro_wh_per_1k_output": 280_000,  # 0.28 Wh/1k (interpolated)
-        "enabled": True,
+        "enabled": False,  # Hidden from user selection; retained as task classifier backend
         # data_provenance: interpolated
         # source_note: Interpolated between 1B and 3B Qwen2.5 family
     },
@@ -146,7 +146,7 @@ MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 1_100_000,
         "estimated_tokens_per_second": 90,
         "estimated_energy_micro_wh_per_1k_output": 400_000,  # 0.40 Wh/1k (measured 0.348)
-        "enabled": True,
+        "enabled": False,  # Hidden from user selection per product decision
         # data_provenance: measured
         # source_note: RTX 4060 Ti: 1.252 J/token = 0.348 Wh/1k, 107.8 tok/s
     },

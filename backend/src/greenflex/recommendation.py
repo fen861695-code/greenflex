@@ -165,6 +165,7 @@ class GreenRouterRuleV1:
         self._queue_depth = queue_depth
         self._shadow_mode = shadow_mode
         self._energy_estimator = energy_estimator
+        self._complexity_estimator = ComplexityEstimator()
 
     # ------------------------------------------------------------------
     # Public API
@@ -184,10 +185,13 @@ class GreenRouterRuleV1:
         if request.candidate_model_ids is not None:
             models = [m for m in models if m.id in request.candidate_model_ids]
 
+        # Estimate task complexity (drives 3D quality risk matrix)
+        complexity = self._estimate_complexity(request)
+
         # Phase 1: compute estimates and apply hard constraints
         candidates: list[_CandidateEstimate] = []
         for model in models:
-            est = self._estimate_candidate(model, request, now)
+            est = self._estimate_candidate(model, request, now, complexity)
             candidates.append(est)
 
         feasible = [c for c in candidates if c.feasible]
@@ -266,6 +270,33 @@ class GreenRouterRuleV1:
             shadow_mode=self._shadow_mode,
         )
 
+    def _estimate_complexity(self, request: RecommendationInput) -> ComplexityLevel:
+        """Estimate task complexity from prompt preview or token counts.
+
+        Uses the rule-based ComplexityEstimator when prompt text is available;
+        otherwise falls back to a token-count heuristic that considers both
+        input and output length (long outputs need larger models for stability).
+        This drives the 3D quality risk matrix.
+        """
+        if request.prompt_preview and request.prompt_preview.strip():
+            level, _ = self._complexity_estimator.estimate(
+                request.prompt_preview, request.task_type
+            )
+            # Output length can raise complexity even when input is short
+            # (e.g. 256 chars in → 1024 tokens out needs a stable model)
+            if request.estimated_output_tokens >= 1024:
+                level = ComplexityLevel.HIGH
+            elif request.estimated_output_tokens >= 512 and level == ComplexityLevel.LOW:
+                level = ComplexityLevel.MEDIUM
+            return level
+        # Fallback: infer from combined input+output token count
+        total_tokens = request.estimated_input_tokens + request.estimated_output_tokens
+        if total_tokens < 500:
+            return ComplexityLevel.LOW
+        if total_tokens < 2000:
+            return ComplexityLevel.MEDIUM
+        return ComplexityLevel.HIGH
+
     # ------------------------------------------------------------------
     # Phase 1: estimation + hard constraints
     # ------------------------------------------------------------------
@@ -274,6 +305,7 @@ class GreenRouterRuleV1:
         model: ModelRecord,
         request: RecommendationInput,
         now: datetime,
+        complexity: ComplexityLevel,
     ) -> _CandidateEstimate:
         total_input = request.estimated_input_tokens * max(1, request.item_count)
         total_output = request.estimated_output_tokens * max(1, request.item_count)
@@ -324,20 +356,28 @@ class GreenRouterRuleV1:
                 }
                 uncertainty_penalty = penalty_map.get(energy_provenance, 10.0)
 
-        energy = energy_per_1k * total_output // 1_000
+        # Energy estimate — input (prefill) + output (decode) both consume energy
+        # Prefill is compute-heavy (batch matmul), decode is memory-bandwidth-bound;
+        # per-token energy is roughly comparable, so use total token count.
+        total_tokens = total_input + total_output
+        energy = energy_per_1k * total_tokens // 1_000
 
         # Carbon estimate (micro-g CO2)
         carbon = energy * self._carbon_g_per_kwh // 1_000_000
 
-        # Execution time estimate
-        execution_seconds = total_output // max(1, tokens_per_second) + 1
+        # Execution time estimate — prefill (input) + decode (output)
+        # Prefill throughput is typically 2-4x decode throughput (batch compute);
+        # use 3x as a conservative default when no separate prefill speed is available.
+        _PREFILL_SPEEDUP = 3
+        prefill_seconds = total_input // max(1, tokens_per_second * _PREFILL_SPEEDUP)
+        decode_seconds = total_output // max(1, tokens_per_second)
+        execution_seconds = prefill_seconds + decode_seconds + 1
 
         # Wait time estimate (simple queue model)
         wait_seconds = self._queue_depth * 3  # ~3s per queued item
 
-        # Quality risk for this task type
-        risk_matrix = _TASK_TIER_RISK.get(request.task_type, _TASK_TIER_RISK[TaskType.AUTO])
-        quality_risk = risk_matrix.get(model.tier, QualityRiskLevel.MEDIUM)
+        # Quality risk for this task type (3D matrix: task × complexity × tier)
+        quality_risk = get_quality_risk(request.task_type, complexity, model.tier)
 
         # --- Hard constraints ---
         reasons: list[str] = []
@@ -707,3 +747,197 @@ class TaskClassifier:
         # Clamp confidence
         confidence_bps = int(max(0.0, min(1.0, confidence)) * 10000)
         return task_type, confidence_bps
+
+
+# ---------------------------------------------------------------------------
+# Complexity Estimator (lightweight, rule-based, no model call needed)
+# ---------------------------------------------------------------------------
+
+# Domain terminology patterns — higher density suggests higher complexity
+_TECHNICAL_TERMS: tuple[str, ...] = (
+    "法律", "法规", "合同", "条款", "合规", "侵权", "专利", "知识产权",
+    "医学", "临床", "诊断", "治疗", "病理", "药理", "处方",
+    "代码", "算法", "函数", "接口", "架构", "数据库", "API", "bug",
+    "财务", "报表", "审计", "税务", "估值", "财报",
+    "数学", "公式", "证明", "推导", "统计", "概率",
+)
+
+# Reasoning demand signals — these words suggest multi-step reasoning
+_REASONING_SIGNALS: tuple[str, ...] = (
+    "分析", "对比", "比较", "评估", "计算", "推导", "证明", "解释",
+    "为什么", "如何", "怎么", "哪些", "区别", "优劣", "优缺点",
+    "请说明", "请分析", "请比较", "请评估", "请解释",
+    "第一步", "第二步", "首先", "其次", "然后", "最后",
+)
+
+# Structured output signals
+_STRUCTURED_SIGNALS: tuple[str, ...] = (
+    "JSON", "表格", "列表", "分点", "逐条", "格式", "模板",
+    "字段", "键值", "数组", "对象",
+)
+
+
+class ComplexityEstimator:
+    """Estimate task complexity from prompt text using lightweight heuristics.
+
+    No model call needed — fast, deterministic, and explainable.
+    Considers: text length, technical term density, reasoning signals,
+    structured output requirements, and multi-question indicators.
+    """
+
+    def estimate(
+        self,
+        prompt: str,
+        task_type: TaskType = TaskType.AUTO,
+    ) -> tuple[ComplexityLevel, dict[str, int]]:
+        """Estimate complexity level.
+
+        Returns:
+            (complexity_level, feature_scores) — feature_scores for debugging.
+        """
+        if not prompt or not prompt.strip():
+            return ComplexityLevel.LOW, {}
+
+        text = prompt.strip()
+        char_count = len(text)
+
+        # Feature 1: text length (longer = more likely complex)
+        if char_count < 100:
+            length_score = 0
+        elif char_count < 500:
+            length_score = 1
+        elif char_count < 2000:
+            length_score = 2
+        else:
+            length_score = 3
+
+        # Feature 2: technical term density
+        term_hits = sum(1 for term in _TECHNICAL_TERMS if term in text)
+        if term_hits == 0:
+            term_score = 0
+        elif term_hits <= 2:
+            term_score = 1
+        elif term_hits <= 5:
+            term_score = 2
+        else:
+            term_score = 3
+
+        # Feature 3: reasoning demand signals
+        reasoning_hits = sum(1 for sig in _REASONING_SIGNALS if sig in text)
+        if reasoning_hits == 0:
+            reasoning_score = 0
+        elif reasoning_hits <= 2:
+            reasoning_score = 1
+        elif reasoning_hits <= 4:
+            reasoning_score = 2
+        else:
+            reasoning_score = 3
+
+        # Feature 4: structured output requirement
+        structured_hits = sum(1 for sig in _STRUCTURED_SIGNALS if sig in text)
+        structured_score = 1 if structured_hits > 0 else 0
+
+        # Feature 5: multi-question / multi-step indicators
+        question_marks = text.count("？") + text.count("?")
+        multi_score = 1 if question_marks >= 2 else 0
+
+        # Task type base complexity
+        task_base = {
+            TaskType.CLASSIFICATION: 0,
+            TaskType.EXTRACTION: 1,
+            TaskType.SUMMARIZATION: 1,
+            TaskType.GENERATION: 2,
+            TaskType.ANALYSIS: 3,
+            TaskType.CODE: 3,
+            TaskType.AUTO: 1,
+        }.get(task_type, 1)
+
+        # Weighted total (max ~15)
+        total = (
+            length_score * 2
+            + term_score * 2
+            + reasoning_score * 3
+            + structured_score
+            + multi_score
+            + task_base * 2
+        )
+
+        # Thresholds
+        if total <= 5:
+            level = ComplexityLevel.LOW
+        elif total <= 10:
+            level = ComplexityLevel.MEDIUM
+        else:
+            level = ComplexityLevel.HIGH
+
+        features = {
+            "length_score": length_score,
+            "term_score": term_score,
+            "reasoning_score": reasoning_score,
+            "structured_score": structured_score,
+            "multi_score": multi_score,
+            "task_base": task_base,
+            "total": total,
+        }
+        return level, features
+
+
+# ---------------------------------------------------------------------------
+# Three-dimensional quality risk matrix (task_type × complexity × model_tier)
+# ---------------------------------------------------------------------------
+
+_TASK_COMPLEXITY_TIER_RISK: dict[TaskType, dict[ComplexityLevel, dict[str, QualityRiskLevel]]] = {
+    TaskType.CLASSIFICATION: {
+        ComplexityLevel.LOW: {"economy": QualityRiskLevel.LOW, "balanced": QualityRiskLevel.LOW, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.MEDIUM: {"economy": QualityRiskLevel.LOW, "balanced": QualityRiskLevel.LOW, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.HIGH: {"economy": QualityRiskLevel.MEDIUM, "balanced": QualityRiskLevel.LOW, "quality": QualityRiskLevel.LOW},
+    },
+    TaskType.EXTRACTION: {
+        ComplexityLevel.LOW: {"economy": QualityRiskLevel.LOW, "balanced": QualityRiskLevel.LOW, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.MEDIUM: {"economy": QualityRiskLevel.MEDIUM, "balanced": QualityRiskLevel.LOW, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.HIGH: {"economy": QualityRiskLevel.HIGH, "balanced": QualityRiskLevel.MEDIUM, "quality": QualityRiskLevel.LOW},
+    },
+    TaskType.SUMMARIZATION: {
+        ComplexityLevel.LOW: {"economy": QualityRiskLevel.MEDIUM, "balanced": QualityRiskLevel.LOW, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.MEDIUM: {"economy": QualityRiskLevel.HIGH, "balanced": QualityRiskLevel.MEDIUM, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.HIGH: {"economy": QualityRiskLevel.HIGH, "balanced": QualityRiskLevel.MEDIUM, "quality": QualityRiskLevel.LOW},
+    },
+    TaskType.GENERATION: {
+        ComplexityLevel.LOW: {"economy": QualityRiskLevel.MEDIUM, "balanced": QualityRiskLevel.LOW, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.MEDIUM: {"economy": QualityRiskLevel.HIGH, "balanced": QualityRiskLevel.MEDIUM, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.HIGH: {"economy": QualityRiskLevel.VERY_HIGH, "balanced": QualityRiskLevel.HIGH, "quality": QualityRiskLevel.MEDIUM},
+    },
+    TaskType.ANALYSIS: {
+        ComplexityLevel.LOW: {"economy": QualityRiskLevel.HIGH, "balanced": QualityRiskLevel.MEDIUM, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.MEDIUM: {"economy": QualityRiskLevel.VERY_HIGH, "balanced": QualityRiskLevel.HIGH, "quality": QualityRiskLevel.MEDIUM},
+        ComplexityLevel.HIGH: {"economy": QualityRiskLevel.VERY_HIGH, "balanced": QualityRiskLevel.HIGH, "quality": QualityRiskLevel.MEDIUM},
+    },
+    TaskType.CODE: {
+        ComplexityLevel.LOW: {"economy": QualityRiskLevel.HIGH, "balanced": QualityRiskLevel.MEDIUM, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.MEDIUM: {"economy": QualityRiskLevel.VERY_HIGH, "balanced": QualityRiskLevel.HIGH, "quality": QualityRiskLevel.MEDIUM},
+        ComplexityLevel.HIGH: {"economy": QualityRiskLevel.VERY_HIGH, "balanced": QualityRiskLevel.VERY_HIGH, "quality": QualityRiskLevel.HIGH},
+    },
+    TaskType.AUTO: {
+        ComplexityLevel.LOW: {"economy": QualityRiskLevel.MEDIUM, "balanced": QualityRiskLevel.LOW, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.MEDIUM: {"economy": QualityRiskLevel.HIGH, "balanced": QualityRiskLevel.MEDIUM, "quality": QualityRiskLevel.LOW},
+        ComplexityLevel.HIGH: {"economy": QualityRiskLevel.VERY_HIGH, "balanced": QualityRiskLevel.HIGH, "quality": QualityRiskLevel.MEDIUM},
+    },
+}
+
+
+def get_quality_risk(
+    task_type: TaskType,
+    complexity: ComplexityLevel,
+    tier: str,
+) -> QualityRiskLevel:
+    """Look up quality risk from 3D matrix. Falls back to 2D matrix if needed."""
+    task_map = _TASK_COMPLEXITY_TIER_RISK.get(task_type)
+    if task_map:
+        complexity_map = task_map.get(complexity)
+        if complexity_map:
+            risk = complexity_map.get(tier)
+            if risk:
+                return risk
+    # Fallback to original 2D matrix
+    risk_matrix = _TASK_TIER_RISK.get(task_type, _TASK_TIER_RISK[TaskType.AUTO])
+    return risk_matrix.get(tier, QualityRiskLevel.MEDIUM)

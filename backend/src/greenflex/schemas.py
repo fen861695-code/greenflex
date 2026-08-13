@@ -5,10 +5,12 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from greenflex.domain import (
+    ComplexityLevel,
     ExecutionMode,
     ItemStatus,
     ModelTier,
     OrderStatus,
+    OutputLength,
     Provenance,
     QualityRequirement,
     QualityRiskLevel,
@@ -46,7 +48,7 @@ class PreviewRequest(ApiModel):
     model_id: str
     prompt: str = Field(min_length=1, max_length=8_192)
     system_prompt: str | None = Field(default=None, max_length=4_096)
-    max_output_tokens: int = Field(default=256, ge=16, le=512)
+    max_output_tokens: int = Field(default=256, ge=16, le=8192)
 
 
 class PreviewResponse(ApiModel):
@@ -65,7 +67,7 @@ class BatchItemInput(ApiModel):
     client_item_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
     prompt: str = Field(min_length=1, max_length=8_192)
     system_prompt: str | None = Field(default=None, max_length=4_096)
-    max_output_tokens: int = Field(default=256, ge=16, le=512)
+    max_output_tokens: int = Field(default=256, ge=16, le=8192)
 
 
 class QuoteRequest(ApiModel):
@@ -250,3 +252,119 @@ class RecommendationResponse(ApiModel):
     carbon_intensity_source: str | None = None
     carbon_intensity_provenance: Provenance | None = None
     carbon_intensity_g_per_kwh: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# Unified Solution API (one-stop: input → auto-detect → priced recommendations)
+# ---------------------------------------------------------------------------
+
+
+class SolutionItemInput(ApiModel):
+    """Single task item for solution request. max_output_tokens is optional —
+    if omitted, it is auto-derived from task_type + output_length."""
+
+    client_item_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    prompt: str = Field(min_length=1, max_length=8_192)
+    system_prompt: str | None = Field(default=None, max_length=4_096)
+    max_output_tokens: int | None = Field(default=None, ge=16, le=8192)
+
+
+class SolutionRequest(ApiModel):
+    """One-stop solution request.
+
+    User provides task content + preferences; system auto-detects task type,
+    complexity, token counts, and returns priced recommendation options.
+    """
+
+    # Task content — either single prompt or batch items
+    prompt: str | None = Field(default=None, min_length=1, max_length=8_192)
+    system_prompt: str | None = Field(default=None, max_length=4_096)
+    items: list[SolutionItemInput] | None = Field(default=None, min_length=1, max_length=500)
+
+    # User preferences (no token numbers needed)
+    output_length: OutputLength = OutputLength.MEDIUM
+    quality_requirement: QualityRequirement = QualityRequirement.STANDARD
+    task_type: TaskType = TaskType.AUTO
+    mode: RecommendationMode = RecommendationMode.SMART
+
+    # Optional constraints
+    budget_rmb: float | None = Field(default=None, ge=0, le=1000)
+    deadline: datetime | None = None
+    execution_mode: ExecutionMode = ExecutionMode.IMMEDIATE
+
+    @model_validator(mode="after")
+    def prompt_or_items(self) -> SolutionRequest:
+        if self.prompt is None and self.items is None:
+            raise ValueError("Either 'prompt' or 'items' must be provided")
+        if self.prompt is not None and self.items is not None:
+            raise ValueError("'prompt' and 'items' cannot both be set")
+        return self
+
+    @property
+    def budget_micro_rmb(self) -> int | None:
+        if self.budget_rmb is None:
+            return None
+        return int(self.budget_rmb * 1_000_000)
+
+
+class SolutionOption(ApiModel):
+    """A single priced solution option — user can select and directly order."""
+
+    rank: int
+    is_recommended: bool
+    model_id: str
+    model_name: str
+    tier: ModelTier
+    quality_risk: QualityRiskLevel
+    complexity_level: ComplexityLevel
+    detected_task_type: TaskType
+    task_classification_confidence_bps: int | None = None
+
+    # Auto-computed token counts
+    estimated_input_tokens: int
+    estimated_output_tokens: int
+    item_count: int
+
+    # Priced quote (directly orderable)
+    quote_id: str
+    execution_mode: ExecutionMode
+    total_price_rmb: str
+    base_price_rmb: str
+    discount_percent: str
+    facility_energy_wh_est: str
+    carbon_g_est: str
+    renewable_share_percent: str
+    estimated_execution_seconds: int
+    estimated_wait_seconds: int
+    scheduled_start: datetime
+    scheduled_end: datetime
+    expires_at: datetime
+
+    # Reasoning
+    reason_codes: list[str]
+    reason_summary: str
+    confidence_bps: int
+    confidence_label: str
+
+    # Provenance
+    pricing_version: str
+    signal_version: str
+    energy_provenance_tier: str = "insufficient_data"
+    energy_confidence_bps: int = 0
+    carbon_intensity_source: str | None = None
+    carbon_intensity_g_per_kwh: int | None = None
+
+
+class SolutionResponse(ApiModel):
+    """Response from unified solution API — ranked options ready to order."""
+
+    solution_id: str
+    detected_task_type: TaskType
+    task_classification_confidence_bps: int | None = None
+    complexity_level: ComplexityLevel
+    estimated_input_tokens: int
+    estimated_output_tokens: int
+    item_count: int
+    options: list[SolutionOption]
+    policy_version: str
+    profile_version: str

@@ -20,11 +20,14 @@ from greenflex.config import get_settings
 from greenflex.container import ServiceContainer
 from greenflex.domain import (
     TERMINAL_ORDER_STATUSES,
+    ComplexityLevel,
     DomainError,
     ExecutionMode,
     ItemStatus,
     ModelTier,
     OrderStatus,
+    OUTPUT_TOKEN_MAP,
+    OutputLength,
     Provenance,
     TaskType,
     utc_now,
@@ -42,8 +45,10 @@ from greenflex.ports import GenerationRequest
 from greenflex.recommendation import (
     POLICY_VERSION,
     PROFILE_VERSION,
+    ComplexityEstimator,
     GreenRouterRuleV1,
     TaskClassifier,
+    get_quality_risk,
     hash_recommendation_request,
 )
 from greenflex.schemas import (
@@ -59,6 +64,9 @@ from greenflex.schemas import (
     RecommendationResponse,
     QuoteOption,
     QuoteRequest,
+    SolutionOption,
+    SolutionRequest,
+    SolutionResponse,
 )
 from greenflex.models import RecommendationDecisionRecord
 from greenflex.telemetry import TelemetryCapture
@@ -860,4 +868,286 @@ async def create_recommendation(
         carbon_intensity_source=signal.source_version,
         carbon_intensity_provenance=signal.provenance,
         carbon_intensity_g_per_kwh=signal.carbon_g_per_kwh,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Unified Solution Service (one-stop: input → auto-detect → priced options)
+# ---------------------------------------------------------------------------
+
+
+async def create_solution(
+    session: AsyncSession,
+    container: ServiceContainer,
+    request: SolutionRequest,
+    *,
+    now: datetime | None = None,
+) -> SolutionResponse:
+    """One-stop solution: auto-detect task type + complexity, recommend models,
+    and return priced options ready to order.
+
+    User only provides task content + simple preferences (output length,
+    quality requirement). No token numbers needed.
+    """
+    created_at = _aware_utc(now or utc_now())
+    solution_id = str(uuid4())
+
+    # Step 1: Normalize input to BatchItemInput list
+    if request.prompt is not None:
+        # Single prompt → one item
+        batch_items = [
+            BatchItemInput(
+                client_item_id="item-1",
+                prompt=request.prompt,
+                system_prompt=request.system_prompt,
+                max_output_tokens=256,  # placeholder, will be overridden
+            )
+        ]
+        primary_prompt = request.prompt
+    else:
+        # Batch items
+        batch_items = [
+            BatchItemInput(
+                client_item_id=item.client_item_id,
+                prompt=item.prompt,
+                system_prompt=item.system_prompt,
+                max_output_tokens=item.max_output_tokens or 256,
+            )
+            for item in (request.items or [])
+        ]
+        primary_prompt = batch_items[0].prompt if batch_items else ""
+
+    item_count = len(batch_items)
+
+    # Step 2: Auto-detect task type (if AUTO)
+    effective_task_type = request.task_type
+    classifier_confidence_bps: int | None = None
+    if request.task_type == TaskType.AUTO:
+        classifier = TaskClassifier(container.inference)
+        detected_type, detected_confidence = await classifier.classify(
+            primary_prompt,
+            request.system_prompt,
+        )
+        if detected_type != TaskType.AUTO:
+            effective_task_type = detected_type
+            classifier_confidence_bps = detected_confidence
+
+    # Step 3: Auto-estimate complexity
+    complexity_estimator = ComplexityEstimator()
+    complexity_level, _complexity_features = complexity_estimator.estimate(
+        primary_prompt,
+        effective_task_type,
+    )
+
+    # Step 4: Auto-derive output tokens from task_type + output_length
+    default_output_tokens = OUTPUT_TOKEN_MAP.get(
+        (effective_task_type, request.output_length),
+        OUTPUT_TOKEN_MAP[(TaskType.AUTO, OutputLength.MEDIUM)],
+    )
+
+    # Apply output tokens to items that don't have explicit max_output_tokens
+    normalized_items: list[BatchItemInput] = []
+    for i, item in enumerate(batch_items):
+        if request.prompt is not None:
+            # Single prompt always uses auto-derived output
+            max_out = default_output_tokens
+        elif request.items and request.items[i].max_output_tokens is not None:
+            max_out = request.items[i].max_output_tokens
+        else:
+            max_out = default_output_tokens
+        normalized_items.append(
+            BatchItemInput(
+                client_item_id=item.client_item_id,
+                prompt=item.prompt,
+                system_prompt=item.system_prompt,
+                max_output_tokens=max_out,
+            )
+        )
+
+    # Step 5: Auto-compute input tokens
+    estimated_input_tokens = estimate_input_tokens(normalized_items)
+    estimated_output_tokens = sum(item.max_output_tokens for item in normalized_items)
+
+    # Step 6: Load models and run recommendation
+    models = (
+        await session.scalars(select(ModelRecord).where(ModelRecord.enabled.is_(True)))
+    ).all()
+    if not models:
+        raise DomainError("no_models_available", "没有可用的模型。", 503)
+
+    from greenflex.ports import RecommendationInput
+
+    rec_input = RecommendationInput(
+        mode=request.mode,
+        task_type=effective_task_type,
+        estimated_input_tokens=estimated_input_tokens,
+        estimated_output_tokens=estimated_output_tokens,
+        item_count=item_count,
+        quality_requirement=request.quality_requirement,
+        budget_micro_rmb=request.budget_micro_rmb,
+        deadline=_aware_utc(request.deadline) if request.deadline else None,
+        execution_mode=request.execution_mode,
+        candidate_model_ids=None,
+        prompt_preview=primary_prompt[:512],
+    )
+
+    signal = container.signals.signal_at(created_at)
+    policy = GreenRouterRuleV1(
+        carbon_g_per_kwh=signal.carbon_g_per_kwh,
+        renewable_share_bps=signal.renewable_share_bps,
+        price_micro_rmb_per_kwh=signal.price_micro_rmb_per_kwh,
+        queue_depth=0,
+        shadow_mode=container.recommendation._shadow_mode,
+        energy_estimator=getattr(container, "energy_estimator", None),
+    )
+
+    rec_result = policy.recommend(
+        request=rec_input,
+        available_models=models,
+        now=created_at,
+    )
+
+    # Step 7: Collect candidate models (recommended + top alternatives)
+    candidate_model_ids: list[str] = [rec_result.recommended_model_id]
+    for alt in rec_result.alternatives:
+        if alt.model_id not in candidate_model_ids:
+            candidate_model_ids.append(alt.model_id)
+        if len(candidate_model_ids) >= 3:
+            break
+
+    # Step 8: Generate quotes for each candidate model
+    options: list[SolutionOption] = []
+    for rank, model_id in enumerate(candidate_model_ids, start=1):
+        model = next((m for m in models if m.id == model_id), None)
+        if model is None:
+            continue
+
+        # Generate quote for this specific model
+        quote_request = QuoteRequest(
+            items=normalized_items,
+            model_id=model_id,
+            deadline=_aware_utc(request.deadline) if request.deadline else None,
+        )
+        try:
+            quote_options = await create_quotes(
+                session, container, quote_request, now=created_at
+            )
+        except DomainError:
+            continue
+
+        if not quote_options:
+            continue
+
+        # Pick the best execution mode (immediate first, then flexible)
+        quote = quote_options[0]
+        for qo in quote_options:
+            if qo.execution_mode == request.execution_mode:
+                quote = qo
+                break
+
+        # Find matching recommendation data for this model
+        is_recommended = model_id == rec_result.recommended_model_id
+        rec_alt = next(
+            (a for a in rec_result.alternatives if a.model_id == model_id),
+            None,
+        )
+
+        # Quality risk from 3D matrix
+        quality_risk = get_quality_risk(effective_task_type, complexity_level, model.tier)
+
+        # Confidence
+        confidence_bps = rec_result.confidence_bps if is_recommended else max(
+            1000, rec_result.confidence_bps - 1000
+        )
+        if confidence_bps >= 7000:
+            confidence_label = "高"
+        elif confidence_bps >= 4000:
+            confidence_label = "中"
+        else:
+            confidence_label = "低"
+
+        # Reason summary
+        reason_codes = list(rec_result.reason_codes) if is_recommended else (
+            list(rec_alt.reason_codes) if rec_alt else []
+        )
+        if is_recommended:
+            reason_summary = rec_result.reason_summary
+        else:
+            tier_label = {"economy": "经济型", "balanced": "均衡型", "quality": "高质量型"}.get(
+                model.tier, model.tier
+            )
+            reason_summary = f"备选方案：{tier_label}，适合对成本或质量有不同偏好的场景。"
+
+        # Energy provenance
+        energy_provenance_tier = getattr(
+            model, "energy_data_provenance", "insufficient_data"
+        )
+        energy_confidence_bps = getattr(model, "energy_confidence_bps", 0) or 0
+
+        options.append(
+            SolutionOption(
+                rank=rank,
+                is_recommended=is_recommended,
+                model_id=model.id,
+                model_name=model.display_name,
+                tier=ModelTier(model.tier),
+                quality_risk=quality_risk,
+                complexity_level=complexity_level,
+                detected_task_type=effective_task_type,
+                task_classification_confidence_bps=classifier_confidence_bps,
+                estimated_input_tokens=estimated_input_tokens,
+                estimated_output_tokens=estimated_output_tokens,
+                item_count=item_count,
+                quote_id=quote.quote_id,
+                execution_mode=quote.execution_mode,
+                total_price_rmb=quote.total_price_rmb,
+                base_price_rmb=quote.base_price_rmb,
+                discount_percent=quote.discount_percent,
+                facility_energy_wh_est=quote.facility_energy_wh_est,
+                carbon_g_est=quote.carbon_g_est,
+                renewable_share_percent=quote.renewable_share_percent,
+                estimated_execution_seconds=(
+                    rec_result.estimated_execution_seconds
+                    if is_recommended
+                    else (rec_alt.estimated_execution_seconds if rec_alt else 0)
+                ),
+                estimated_wait_seconds=(
+                    rec_result.estimated_wait_seconds
+                    if is_recommended
+                    else (rec_alt.estimated_wait_seconds if rec_alt else 0)
+                ),
+                scheduled_start=quote.scheduled_start,
+                scheduled_end=quote.scheduled_end,
+                expires_at=quote.expires_at,
+                reason_codes=reason_codes,
+                reason_summary=reason_summary,
+                confidence_bps=confidence_bps,
+                confidence_label=confidence_label,
+                pricing_version=quote.pricing_version,
+                signal_version=quote.signal_version,
+                energy_provenance_tier=energy_provenance_tier,
+                energy_confidence_bps=energy_confidence_bps,
+                carbon_intensity_source=signal.source_version,
+                carbon_intensity_g_per_kwh=signal.carbon_g_per_kwh,
+            )
+        )
+
+    if not options:
+        raise DomainError(
+            "no_solution_available",
+            "没有可用的方案，请调整输入或约束条件。",
+            409,
+        )
+
+    return SolutionResponse(
+        solution_id=solution_id,
+        detected_task_type=effective_task_type,
+        task_classification_confidence_bps=classifier_confidence_bps,
+        complexity_level=complexity_level,
+        estimated_input_tokens=estimated_input_tokens,
+        estimated_output_tokens=estimated_output_tokens,
+        item_count=item_count,
+        options=options,
+        policy_version=POLICY_VERSION,
+        profile_version=PROFILE_VERSION,
     )

@@ -23,12 +23,15 @@ from greenflex.schemas import (
     QuoteResponse,
     RecommendationRequest,
     RecommendationResponse,
+    SolutionRequest,
+    SolutionResponse,
 )
 from greenflex.services import (
     cancel_order,
     create_order,
     create_quotes,
     create_recommendation,
+    create_solution,
     get_order,
     get_passport,
     list_models,
@@ -72,6 +75,20 @@ async def recommendations(
     container: ContainerDep,
 ) -> RecommendationResponse:
     return await create_recommendation(session, container, payload)
+
+
+@router.post("/solutions", response_model=SolutionResponse)
+async def solutions(
+    payload: SolutionRequest,
+    session: SessionDep,
+    container: ContainerDep,
+) -> SolutionResponse:
+    """One-stop solution: input task content → auto-detect type/complexity →
+    recommend models with priced options ready to order.
+
+    User does not need to specify token counts.
+    """
+    return await create_solution(session, container, payload)
 
 
 @router.post("/quotes", response_model=QuoteResponse)
