@@ -283,6 +283,33 @@ class GreenRouterRuleV1:
         risk_matrix = _TASK_TIER_RISK.get(request.task_type, _TASK_TIER_RISK[TaskType.AUTO])
         quality_risk = risk_matrix.get(model.tier, QualityRiskLevel.MEDIUM)
 
+        # Complexity-based risk escalation: large inputs / long outputs raise risk
+        risk_order = [
+            QualityRiskLevel.LOW,
+            QualityRiskLevel.MEDIUM,
+            QualityRiskLevel.HIGH,
+            QualityRiskLevel.VERY_HIGH,
+        ]
+        risk_idx = risk_order.index(quality_risk)
+        # Task-type-aware thresholds: extraction/summarization are more sensitive
+        # to input length than simple classification.
+        if request.task_type in (TaskType.EXTRACTION, TaskType.SUMMARIZATION):
+            in_lo, in_hi = 1500, 5000
+        else:
+            in_lo, in_hi = 5000, 10_000
+        if request.estimated_input_tokens > in_hi:
+            risk_idx = min(risk_idx + 2, len(risk_order) - 1)
+        elif request.estimated_input_tokens > in_lo:
+            risk_idx = min(risk_idx + 1, len(risk_order) - 1)
+        if request.estimated_output_tokens > 2_000:
+            risk_idx = min(risk_idx + 2, len(risk_order) - 1)
+        elif request.estimated_output_tokens > 1_000:
+            risk_idx = min(risk_idx + 1, len(risk_order) - 1)
+        # Batch amplification: many items raise effective complexity
+        if request.item_count > 100:
+            risk_idx = min(risk_idx + 1, len(risk_order) - 1)
+        quality_risk = risk_order[risk_idx]
+
         # --- Hard constraints ---
         reasons: list[str] = []
 
@@ -309,7 +336,21 @@ class GreenRouterRuleV1:
             if _TIER_ORDER.get(model.tier, 0) < _TIER_ORDER["quality"]:
                 reasons.append("quality_floor_high")
 
-        # 4b. Classifier tier floor: the task classifier recommends a
+        # 4b. Complexity tier floor: task type + input/output size impose a
+        #     minimum tier. Code tasks never run on economy; complex
+        #     extraction/summarization require at least balanced.
+        complexity_floor = 0
+        if request.task_type == TaskType.CODE:
+            complexity_floor = max(complexity_floor, _TIER_ORDER["balanced"])
+        if request.task_type in (TaskType.EXTRACTION, TaskType.SUMMARIZATION):
+            if request.estimated_input_tokens > 1500 or request.item_count > 20:
+                complexity_floor = max(complexity_floor, _TIER_ORDER["balanced"])
+        if request.estimated_output_tokens > 1000:
+            complexity_floor = max(complexity_floor, _TIER_ORDER["balanced"])
+        if complexity_floor > 0 and _TIER_ORDER.get(model.tier, 0) < complexity_floor:
+            reasons.append("complexity_tier_floor")
+
+        # 4c. Classifier tier floor: the task classifier recommends a
         #     minimum tier based on task type + complexity.  This ensures
         #     e.g. a multi-class classification task doesn't end up on
         #     an economy model even in SMART/STANDARD mode.

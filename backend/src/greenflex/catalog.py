@@ -665,6 +665,135 @@ async def seed_catalog(session: AsyncSession) -> None:
     await session.commit()
 
 
+def _enrich_energy_provenance(values: dict) -> dict:
+    """Enrich model seed data with energy provenance metadata (v2).
+
+    Only L1-L3 tiers are used. Models without sufficient benchmark data
+    are marked INSUFFICIENT_DATA and excluded from energy-aware scoring.
+    """
+    enriched = dict(values)
+    model_id = values.get("id", "")
+    parameter_b = values.get("parameter_b", "")
+    display_name = values.get("display_name", "")
+
+    param_count = _parse_param_count(parameter_b)
+    arch_family = _extract_arch_family(model_id, display_name)
+    quant_bits = 4 if "-q4" in model_id else (16 if "cloud" in model_id else None)
+
+    l2_coverage = {
+        "qwen2.5": [0.5, 1.5, 3.0, 7.0, 14.0, 72.0],
+        "llama3": [1.0, 3.0, 8.0, 70.0],
+        "gemma2": [2.0, 9.0, 27.0],
+        "gemma3": [1.0, 4.0],
+        "gemma4": [2.0],
+        "phi3": [3.8],
+        "phi4": [3.8],
+        "mistral": [7.0, 22.0],
+    }
+    l3_families = set(l2_coverage.keys())
+
+    if "cloud" in model_id:
+        provenance = "insufficient_data"
+        confidence = 0
+        source = "Cloud API model: no verified inference energy benchmark data"
+        reference_gpu = None
+    elif param_count is not None and arch_family in l2_coverage:
+        exact_match = any(
+            abs(p - param_count) < 0.1 for p in l2_coverage[arch_family]
+        )
+        if exact_match:
+            provenance = "l2_benchmark_match"
+            confidence = 8500
+            gpu = "a100-80gb" if param_count >= 1.0 else "rtx-4060-ti"
+            source = f"Public benchmark (JouleBench): {display_name} on {gpu}"
+            reference_gpu = gpu
+        else:
+            provenance = "l3_cross_gpu_normalized"
+            confidence = 6500
+            nearest = min(l2_coverage[arch_family], key=lambda p: abs(p - param_count))
+            source = f"Interpolated from {arch_family} {nearest}B benchmark (cross-GPU normalized)"
+            reference_gpu = "a100-80gb"
+    elif arch_family in l3_families:
+        provenance = "l3_cross_gpu_normalized"
+        confidence = 6000
+        source = f"Interpolated from {arch_family} family benchmarks"
+        reference_gpu = "a100-80gb"
+    else:
+        provenance = "insufficient_data"
+        confidence = 0
+        source = f"No verified energy benchmark available for {arch_family} architecture"
+        reference_gpu = None
+
+    enriched.setdefault("energy_data_provenance", provenance)
+    enriched.setdefault("energy_data_source", source)
+    enriched.setdefault("energy_confidence_bps", confidence)
+    enriched.setdefault("reference_gpu_model", reference_gpu)
+    enriched.setdefault("parameter_count_b", param_count)
+    enriched.setdefault("quantization_bits", quant_bits)
+    enriched.setdefault("architecture_family", arch_family)
+    return enriched
+
+
+def _parse_param_count(param_str: str) -> float | None:
+    """Parse parameter count string to float billions."""
+    if not param_str:
+        return None
+    s = param_str.strip().upper().replace(" ", "").replace("~", "")
+    try:
+        if "T" in s:
+            return float(s.replace("T", "")) * 1000
+        if "B" in s:
+            return float(s.replace("B", ""))
+        if "M" in s:
+            return float(s.replace("M", "")) / 1000
+        if "MOE" in s:
+            import re
+            match = re.search(r"([\d.]+)", s)
+            if match:
+                return float(match.group(1))
+        return float(s) / 1e9
+    except (ValueError, IndexError):
+        return None
+
+
+def _extract_arch_family(model_id: str, display_name: str) -> str:
+    """Extract architecture family from model ID."""
+    mid = model_id.lower().replace("cloud-", "")
+    if "qwen" in mid:
+        if "qwen3" in mid:
+            return "qwen3"
+        if "qwen2.5" in mid:
+            return "qwen2.5"
+        return "qwen"
+    if "llama" in mid:
+        if "llama3.3" in mid:
+            return "llama3.3"
+        if "llama3.2" in mid:
+            return "llama3.2"
+        if "llama3.1" in mid:
+            return "llama3.1"
+        return "llama"
+    if "gemma" in mid:
+        if "gemma4" in mid:
+            return "gemma4"
+        if "gemma3" in mid:
+            return "gemma3"
+        return "gemma"
+    if "mistral" in mid:
+        return "mistral"
+    if "phi" in mid:
+        return "phi"
+    if "gpt" in mid:
+        return "gpt"
+    if "claude" in mid:
+        return "claude"
+    if "deepseek" in mid:
+        return "deepseek"
+    if "doubao" in mid:
+        return "doubao"
+    return "unknown"
+
+
 def _get_official_data_source(model_id: str, runtime_name: str, tier: str) -> str:
     """Return official data source citation for a model based on its family/vendor.
 

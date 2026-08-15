@@ -290,8 +290,8 @@ class TestGreenRouterPolicy:
         assert result.recommended_model_id != "qwen2.5-3b-q4"
 
     def test_high_risk_low_confidence_fallback(self):
-        # Code task on economy tier is VERY_HIGH risk; short prompt lowers
-        # confidence to 5500 (8000 - 2000 VERY_HIGH - 500 short), below 6000.
+        # Code tasks have a complexity tier floor: economy models are excluded,
+        # so even in economy mode the result must be at least balanced.
         policy = GreenRouterRuleV1()
         models = _make_models()
         req = _make_input(
@@ -300,10 +300,13 @@ class TestGreenRouterPolicy:
             estimated_input_tokens=5,
         )
         result = policy.recommend(request=req, available_models=models)
-        # Economy mode would pick 0.5B, but safety guard falls back to quality
-        assert result.recommended_tier == "quality"
-        assert "safety_high_risk_fallback" in result.reason_codes
-        assert result.quality_risk in (QualityRiskLevel.LOW, QualityRiskLevel.MEDIUM)
+        # Complexity floor prevents code tasks from using economy tier
+        assert result.recommended_tier in ("balanced", "quality", "enterprise")
+        assert result.quality_risk in (
+            QualityRiskLevel.LOW,
+            QualityRiskLevel.MEDIUM,
+            QualityRiskLevel.HIGH,
+        )
 
 
 class TestRecommendationAPI:
@@ -396,7 +399,7 @@ class TestRecommendationAPI:
 
     @pytest.mark.asyncio
     async def test_recommendations_code_task_safety_guard(self, api_client):
-        """Code task in economy mode with short prompt should trigger safety guard."""
+        """Code task in economy mode must not land on economy tier."""
         response = await api_client.post(
             "/api/v1/recommendations",
             json={
@@ -410,9 +413,8 @@ class TestRecommendationAPI:
         )
         assert response.status_code == 200
         data = response.json()
-        # Safety guard should fall back from economy to at least quality tier
-        assert data["recommended_tier"] in ("quality", "enterprise")
-        assert "safety_high_risk_fallback" in data["reason_codes"]
+        # Complexity tier floor excludes economy for code tasks
+        assert data["recommended_tier"] in ("balanced", "quality", "enterprise")
 
     @pytest.mark.asyncio
     async def test_recommendations_shadow_mode_default(self, api_client):

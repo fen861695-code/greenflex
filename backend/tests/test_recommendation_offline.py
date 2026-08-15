@@ -168,12 +168,13 @@ class TestComplexityIntegration:
     """复杂度接入验证 — 确保 3D 矩阵生效。"""
 
     def test_high_complexity_analysis_not_economy(self, models):
-        from greenflex.domain import TaskType, QualityRequirement
+        from greenflex.domain import TaskType, QualityRequirement, RecommendationMode
         from greenflex.ports import RecommendationInput
         from datetime import datetime, timezone
 
         evaluator = RecommendationEvaluator(models)
         req = RecommendationInput(
+            mode=RecommendationMode.SMART,
             task_type=TaskType.ANALYSIS,
             estimated_input_tokens=3000,
             estimated_output_tokens=512,
@@ -188,16 +189,18 @@ class TestComplexityIntegration:
         )
 
     def test_large_input_summarization_high_risk(self, models):
-        from greenflex.domain import TaskType, QualityRiskLevel
+        from greenflex.domain import TaskType, QualityRiskLevel, RecommendationMode, QualityRequirement
         from greenflex.ports import RecommendationInput
         from datetime import datetime, timezone
 
         evaluator = RecommendationEvaluator(models)
         req = RecommendationInput(
+            mode=RecommendationMode.SMART,
             task_type=TaskType.SUMMARIZATION,
             estimated_input_tokens=10000,
             estimated_output_tokens=512,
             item_count=1,
+            quality_requirement=QualityRequirement.STANDARD,
         )
         result = evaluator.policy.recommend(
             request=req, available_models=models, now=datetime.now(timezone.utc)
@@ -212,16 +215,18 @@ class TestComplexityIntegration:
             ), f"大输入摘要 economy 风险应为 HIGH, 实际 {econ_alt.quality_risk}"
 
     def test_long_output_generation_not_low_risk(self, models):
-        from greenflex.domain import TaskType, QualityRiskLevel
+        from greenflex.domain import TaskType, QualityRiskLevel, RecommendationMode, QualityRequirement
         from greenflex.ports import RecommendationInput
         from datetime import datetime, timezone
 
         evaluator = RecommendationEvaluator(models)
         req = RecommendationInput(
+            mode=RecommendationMode.SMART,
             task_type=TaskType.GENERATION,
             estimated_input_tokens=64,
             estimated_output_tokens=1500,
             item_count=1,
+            quality_requirement=QualityRequirement.STANDARD,
         )
         result = evaluator.policy.recommend(
             request=req, available_models=models, now=datetime.now(timezone.utc)
