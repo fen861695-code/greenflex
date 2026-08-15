@@ -579,6 +579,22 @@ GreenFlex 坚持**不编造数据**，所有模型参数和能耗数据都标注
 
 OpenAI、Anthropic、DeepSeek、阿里云百炼、火山引擎方舟（豆包）、Google AI，共 6 家。
 
+### Q: 端口被占用了怎么办？
+
+**后端（默认 8000）**：通过环境变量修改：
+```powershell
+$env:GREENFLEX_API_PORT=8001
+python -m uvicorn greenflex.api:app --port 8001
+```
+
+**前端（默认 5173）**：Vite 会自动切换到下一个可用端口（5174、5175…），也可手动指定：
+```powershell
+$env:VITE_PORT=5180
+npx vite
+```
+
+Windows 一键启动脚本会自动检测端口占用并提示处理。
+
 ### Q: 碳排放数据准确吗？
 
 本地模型能耗基于公开基准测试（JouleBench、Watt Counts 等论文），云端模型能耗基于架构分析估算。碳强度数据来自中国区域电网基准。所有数据标注来源和置信度，不做零碳承诺。

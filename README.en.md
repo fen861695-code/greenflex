@@ -578,6 +578,22 @@ Simulated output generates placeholder text based on task type, with token count
 
 OpenAI, Anthropic, DeepSeek, Alibaba Cloud (Qwen), Volcengine (Doubao), and Google AI — 6 providers total.
 
+### Q: What if a port is already in use?
+
+**Backend (default 8000)**: Change via environment variable:
+```powershell
+$env:GREENFLEX_API_PORT=8001
+python -m uvicorn greenflex.api:app --port 8001
+```
+
+**Frontend (default 5173)**: Vite automatically picks the next available port (5174, 5175…), or set it manually:
+```powershell
+$env:VITE_PORT=5180
+npx vite
+```
+
+The Windows startup script automatically detects port conflicts and prompts you.
+
 ### Q: How accurate is the carbon data?
 
 Local model energy is based on public benchmarks (JouleBench, Watt Counts papers); cloud model energy is estimated from architecture analysis. Carbon intensity uses China regional grid baselines. All data includes source and confidence labels. No zero-carbon claims are made.
