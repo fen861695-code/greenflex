@@ -12,6 +12,14 @@ release/
 logs/
 backups/
 telemetry/*.csv*
+runtime/
+
+# Nested project copy / build artifacts
+backend/greenflex/
+
+# Test result artifacts
+backend/e2e_results.json
+backend/test_100_results.json
 
 # Model weights and local runtimes
 models/

@@ -2,10 +2,13 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppLayout } from './components/AppLayout'
 import { BatchOrderPage } from './pages/BatchOrderPage'
+import { CarbonSignalPage } from './pages/CarbonSignalPage'
+import { ChatPage } from './pages/ChatPage'
 import { OrderDetailPage } from './pages/OrderDetailPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { PassportPage } from './pages/PassportPage'
 import { PreviewPage } from './pages/PreviewPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 
 export function App() {
@@ -13,7 +16,10 @@ export function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<WorkspacePage />} />
+        <Route path="chat" element={<ChatPage />} />
         <Route path="preview" element={<PreviewPage />} />
+        <Route path="carbon" element={<CarbonSignalPage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="orders/new" element={<BatchOrderPage />} />
         <Route path="orders" element={<OrdersPage />} />
         <Route path="orders/:id" element={<OrderDetailPage />} />

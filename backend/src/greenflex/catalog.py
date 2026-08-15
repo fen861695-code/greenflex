@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,11 +16,12 @@ _DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 _BENCHMARK_FILE = _DATA_DIR / "benchmarks" / "model-energy-bench-v1.json"
 
 
-def _load_benchmark_data() -> dict:
+def _load_benchmark_data() -> dict[str, object]:
     """Load benchmark data from local JSON file."""
     if _BENCHMARK_FILE.exists():
         with open(_BENCHMARK_FILE, encoding="utf-8") as f:
-            return json.load(f)
+            data: dict[str, object] = json.load(f)
+            return data
     return {}
 
 
@@ -37,18 +39,24 @@ MODEL_SEEDS = (
     {
         "id": "qwen2.5-0.5b-q4",
         "runtime_name": "qwen2.5:0.5b",
-        "display_name": "Qwen2.5 0.5B",
+        "display_name": "Qwen2.5 0.5B (任务分类器)",
         "tier": "economy",
         "parameter_b": "0.5B",
         "context_limit": 32_768,
-        "recommended_for_json": json.dumps(["分类", "字段提取", "简单改写", "情感判断"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["任务分类", "意图识别", "复杂度判断"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 50_000,
         "output_rate_micro_rmb_per_million": 150_000,
         "estimated_tokens_per_second": 200,
-        "estimated_energy_micro_wh_per_1k_output": 100_000,  # 0.10 Wh/1k (conservative vs measured 0.06)
-        "enabled": True,
-        # data_provenance: measured
-        # source_note: RTX 3060: 0.215 J/token = 0.060 Wh/1k; conservative for laptops
+        "estimated_energy_micro_wh_per_1k_output": 100_000,  # 0.10 Wh/1k conservative
+        "recommended_batch_size": 8,
+        "enabled": False,
+        "is_task_classifier": True,
+        "official_data_source": (
+            "Qwen2.5 官方技术报告 https://qwenlm.github.io/blog/qwen2.5/ ; "
+            "实测基准 JouleBench (arXiv 2608.00008)"
+        ),
     },
     {
         "id": "gemma3-1b-q4",
@@ -57,11 +65,14 @@ MODEL_SEEDS = (
         "tier": "economy",
         "parameter_b": "1B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["短文本分类", "实体抽取", "简单问答"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["短文本分类", "实体抽取", "简单问答"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 80_000,
         "output_rate_micro_rmb_per_million": 240_000,
         "estimated_tokens_per_second": 180,
         "estimated_energy_micro_wh_per_1k_output": 180_000,  # 0.18 Wh/1k (measured 0.154)
+        "recommended_batch_size": 6,
         "enabled": True,
         # data_provenance: measured
         # source_note: RTX 4060 Ti: 0.556 J/token = 0.154 Wh/1k, 207.7 tok/s
@@ -73,32 +84,40 @@ MODEL_SEEDS = (
         "tier": "economy",
         "parameter_b": "1B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["简单摘要", "格式转换", "关键词提取"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["简单摘要", "格式转换", "关键词提取"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 80_000,
         "output_rate_micro_rmb_per_million": 240_000,
         "estimated_tokens_per_second": 150,
         "estimated_energy_micro_wh_per_1k_output": 200_000,  # 0.20 Wh/1k (measured 0.180)
+        "recommended_batch_size": 6,
         "enabled": True,
         # data_provenance: measured
         # source_note: RTX 4060 Ti: 0.647 J/token = 0.180 Wh/1k, 173 tok/s
     },
-
     # === Balanced tier: 2-4B models, good quality/efficiency tradeoff ===
     {
         "id": "qwen2.5-1.5b-q4",
         "runtime_name": "qwen2.5:1.5b",
-        "display_name": "Qwen2.5 1.5B",
+        "display_name": "Qwen2.5 1.5B (任务分类器)",
         "tier": "balanced",
         "parameter_b": "1.5B",
         "context_limit": 32_768,
-        "recommended_for_json": json.dumps(["摘要", "知识问答", "通用写作", "邮件回复"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["任务分类", "意图识别", "复杂度判断", "路由决策"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 200_000,
         "output_rate_micro_rmb_per_million": 600_000,
         "estimated_tokens_per_second": 110,
         "estimated_energy_micro_wh_per_1k_output": 280_000,  # 0.28 Wh/1k (interpolated)
-        "enabled": True,
-        # data_provenance: interpolated
-        # source_note: Interpolated between 1B and 3B Qwen2.5 family
+        "recommended_batch_size": 4,
+        "enabled": False,
+        "is_task_classifier": True,
+        "official_data_source": (
+            "Qwen2.5 官方技术报告 https://qwenlm.github.io/blog/qwen2.5/ ; "
+            "实测基准 JouleBench (arXiv 2608.00008)"
+        ),
     },
     {
         "id": "gemma4-e2b-q4",
@@ -107,11 +126,14 @@ MODEL_SEEDS = (
         "tier": "balanced",
         "parameter_b": "2B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["推理任务", "多步分析", "边缘部署"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["推理任务", "多步分析", "边缘部署"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 250_000,
         "output_rate_micro_rmb_per_million": 750_000,
         "estimated_tokens_per_second": 100,
         "estimated_energy_micro_wh_per_1k_output": 350_000,  # 0.35 Wh/1k (measured 0.304)
+        "recommended_batch_size": 4,
         "enabled": True,
         # data_provenance: measured
         # source_note: RTX 4060 Ti: 1.093 J/token = 0.304 Wh/1k, 114 tok/s
@@ -123,11 +145,14 @@ MODEL_SEEDS = (
         "tier": "balanced",
         "parameter_b": "3B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["内容创作", "逻辑推理", "代码解释"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["内容创作", "逻辑推理", "代码解释"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 350_000,
         "output_rate_micro_rmb_per_million": 1_000_000,
         "estimated_tokens_per_second": 95,
         "estimated_energy_micro_wh_per_1k_output": 380_000,  # 0.38 Wh/1k (measured 0.340)
+        "recommended_batch_size": 2,
         "enabled": True,
         # data_provenance: measured
         # source_note: RTX 4060 Ti: 1.225 J/token = 0.340 Wh/1k, 112.4 tok/s
@@ -146,6 +171,7 @@ MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 1_100_000,
         "estimated_tokens_per_second": 90,
         "estimated_energy_micro_wh_per_1k_output": 400_000,  # 0.40 Wh/1k (measured 0.348)
+        "recommended_batch_size": 2,
         "enabled": True,
         # data_provenance: measured
         # source_note: RTX 4060 Ti: 1.252 J/token = 0.348 Wh/1k, 107.8 tok/s
@@ -157,16 +183,18 @@ MODEL_SEEDS = (
         "tier": "balanced",
         "parameter_b": "3.8B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["推理任务", "数学问题", "逻辑分析"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["推理任务", "数学问题", "逻辑分析"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 450_000,
         "output_rate_micro_rmb_per_million": 1_300_000,
         "estimated_tokens_per_second": 75,
         "estimated_energy_micro_wh_per_1k_output": 480_000,  # 0.48 Wh/1k (measured 0.443)
+        "recommended_batch_size": 2,
         "enabled": True,
         # data_provenance: measured
         # source_note: RTX 4060 Ti: 1.595 J/token = 0.443 Wh/1k, 86.5 tok/s
     },
-
     # === Quality tier: 7-14B models, requires 8-10GB VRAM ===
     {
         "id": "gemma3-4b-q4",
@@ -175,11 +203,14 @@ MODEL_SEEDS = (
         "tier": "quality",
         "parameter_b": "4B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["长文理解", "复杂推理", "多模态任务"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["长文理解", "复杂推理", "多模态任务"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 500_000,
         "output_rate_micro_rmb_per_million": 1_500_000,
         "estimated_tokens_per_second": 70,
         "estimated_energy_micro_wh_per_1k_output": 500_000,  # 0.50 Wh/1k (measured 0.464)
+        "recommended_batch_size": 2,
         "enabled": True,
         # data_provenance: measured
         # source_note: RTX 4060 Ti: 1.671 J/token = 0.464 Wh/1k, 78.5 tok/s
@@ -191,11 +222,14 @@ MODEL_SEEDS = (
         "tier": "quality",
         "parameter_b": "7B",
         "context_limit": 32_768,
-        "recommended_for_json": json.dumps(["通用对话", "文本生成", "知识密集型任务"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["通用对话", "文本生成", "知识密集型任务"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 700_000,
         "output_rate_micro_rmb_per_million": 2_000_000,
         "estimated_tokens_per_second": 50,
         "estimated_energy_micro_wh_per_1k_output": 750_000,  # 0.75 Wh/1k (measured 0.690)
+        "recommended_batch_size": 1,
         "enabled": True,
         # data_provenance: measured
         # source_note: RTX 4060 Ti: 2.485 J/token = 0.690 Wh/1k, 55.1 tok/s
@@ -207,11 +241,14 @@ MODEL_SEEDS = (
         "tier": "quality",
         "parameter_b": "7B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["高质量写作", "代码生成", "深度分析", "中文优化"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["高质量写作", "代码生成", "深度分析", "中文优化"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 800_000,
         "output_rate_micro_rmb_per_million": 2_200_000,
         "estimated_tokens_per_second": 45,
         "estimated_energy_micro_wh_per_1k_output": 800_000,  # 0.80 Wh/1k (interpolated)
+        "recommended_batch_size": 1,
         "enabled": True,
         # data_provenance: interpolated
         # source_note: Interpolated from mistral:7b same hardware class; Qwen family more efficient
@@ -223,11 +260,14 @@ MODEL_SEEDS = (
         "tier": "quality",
         "parameter_b": "8B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["复杂推理", "长文生成", "通用任务"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["复杂推理", "长文生成", "通用任务"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 900_000,
         "output_rate_micro_rmb_per_million": 2_500_000,
         "estimated_tokens_per_second": 40,
         "estimated_energy_micro_wh_per_1k_output": 850_000,  # 0.85 Wh/1k (interpolated)
+        "recommended_batch_size": 1,
         "enabled": True,
         # data_provenance: interpolated
         # source_note: Requires ~6GB VRAM for Q4; may offload on 8GB cards
@@ -239,16 +279,18 @@ MODEL_SEEDS = (
         "tier": "quality",
         "parameter_b": "14B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["专业写作", "复杂代码", "深度推理", "企业级任务"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["专业写作", "复杂代码", "深度推理", "企业级任务"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 1_500_000,
         "output_rate_micro_rmb_per_million": 4_000_000,
         "estimated_tokens_per_second": 22,
         "estimated_energy_micro_wh_per_1k_output": 1_500_000,  # 1.5 Wh/1k (interpolated)
+        "recommended_batch_size": 1,
         "enabled": False,  # Disabled by default; requires 10GB+ VRAM
         # data_provenance: interpolated
         # source_note: Requires ~10GB VRAM for Q4; enable if you have sufficient GPU memory
     },
-
     # === Enterprise tier: 32B+ models, requires datacenter or multi-GPU ===
     {
         "id": "qwen3-32b-q4",
@@ -257,11 +299,14 @@ MODEL_SEEDS = (
         "tier": "enterprise",
         "parameter_b": "32B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["企业级部署", "高难度推理", "专业领域"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["企业级部署", "高难度推理", "专业领域"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 4_000_000,
         "output_rate_micro_rmb_per_million": 10_000_000,
         "estimated_tokens_per_second": 10,
-        "estimated_energy_micro_wh_per_1k_output": 3_000_000,  # 3.0 Wh/1k consumer (H100: 27.7 Wh/1k FP16)
+        "estimated_energy_micro_wh_per_1k_output": 3_000_000,  # 3.0 Wh/1k consumer
+        "recommended_batch_size": 1,
         "enabled": False,
         # data_provenance: analytical
         # source_note: H100 FP16: 99.8 mJ/token = 27.7 Wh/1k; Q4 consumer ~3 Wh/1k
@@ -273,11 +318,14 @@ MODEL_SEEDS = (
         "tier": "enterprise",
         "parameter_b": "70B",
         "context_limit": 128_000,
-        "recommended_for_json": json.dumps(["最复杂任务", "研究级推理", "旗舰质量"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["最复杂任务", "研究级推理", "旗舰质量"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 8_000_000,
         "output_rate_micro_rmb_per_million": 20_000_000,
         "estimated_tokens_per_second": 4,
         "estimated_energy_micro_wh_per_1k_output": 6_500_000,  # 6.5 Wh/1k consumer Q4
+        "recommended_batch_size": 1,
         "enabled": False,
         # data_provenance: analytical
         # source_note: H100 FP16: 218.4 mJ/token = 60.7 Wh/1k; requires multi-GPU for consumer
@@ -308,12 +356,14 @@ CLOUD_MODEL_SEEDS = (
         "tier": "enterprise",
         "parameter_b": "~1.8T MoE",
         "context_limit": 200_000,
-        "recommended_for_json": json.dumps(["最复杂推理", "数学证明", "科学研究"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["最复杂推理", "数学证明", "科学研究"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 15 * _USD_TO_MICRO_RMB,
         "output_rate_micro_rmb_per_million": 60 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 30,
         "estimated_energy_micro_wh_per_1k_output": 23_800_000,  # 23.8 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-anthropic-opus-thinking",
@@ -322,12 +372,14 @@ CLOUD_MODEL_SEEDS = (
         "tier": "enterprise",
         "parameter_b": "~400B Dense",
         "context_limit": 1_000_000,
-        "recommended_for_json": json.dumps(["深度推理", "法律分析", "医疗诊断"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["深度推理", "法律分析", "医疗诊断"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 15 * _USD_TO_MICRO_RMB,
         "output_rate_micro_rmb_per_million": 75 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 25,
         "estimated_energy_micro_wh_per_1k_output": 19_600_000,  # 19.6 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-deepseek-r1",
@@ -341,9 +393,8 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": int(2.19 * _USD_TO_MICRO_RMB),
         "estimated_tokens_per_second": 40,
         "estimated_energy_micro_wh_per_1k_output": 5_000_000,  # 5.0 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
-
     # === Frontier general models ===
     {
         "id": "cloud-openai-gpt-5-pro",
@@ -357,7 +408,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 8 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 60,
         "estimated_energy_micro_wh_per_1k_output": 2_600_000,  # 2.6 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-anthropic-opus",
@@ -366,12 +417,14 @@ CLOUD_MODEL_SEEDS = (
         "tier": "enterprise",
         "parameter_b": "~400B Dense",
         "context_limit": 1_000_000,
-        "recommended_for_json": json.dumps(["长文写作", "深度分析", "安全合规"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["长文写作", "深度分析", "安全合规"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 5 * _USD_TO_MICRO_RMB,
         "output_rate_micro_rmb_per_million": 25 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 50,
         "estimated_energy_micro_wh_per_1k_output": 7_000_000,  # 7.0 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-google-gemini-ultra",
@@ -380,12 +433,14 @@ CLOUD_MODEL_SEEDS = (
         "tier": "enterprise",
         "parameter_b": "~1.5T MoE",
         "context_limit": 2_000_000,
-        "recommended_for_json": json.dumps(["超长上下文", "多模态", "百万token"], ensure_ascii=False),
+        "recommended_for_json": json.dumps(
+            ["超长上下文", "多模态", "百万token"], ensure_ascii=False
+        ),
         "input_rate_micro_rmb_per_million": 4 * _USD_TO_MICRO_RMB,
         "output_rate_micro_rmb_per_million": 16 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 55,
         "estimated_energy_micro_wh_per_1k_output": 7_400_000,  # 7.4 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-qwen-max",
@@ -399,7 +454,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": int(6.4 * _USD_TO_MICRO_RMB),
         "estimated_tokens_per_second": 55,
         "estimated_energy_micro_wh_per_1k_output": 1_050_000,  # 1.05 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-doubao-pro",
@@ -413,9 +468,8 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": int(2.0 * _USD_TO_MICRO_RMB),
         "estimated_tokens_per_second": 60,
         "estimated_energy_micro_wh_per_1k_output": 910_000,  # 0.91 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
-
     # === High-end production models (daily workhorses) ===
     {
         "id": "cloud-openai-gpt-5",
@@ -429,7 +483,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 4 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 80,
         "estimated_energy_micro_wh_per_1k_output": 1_180_000,  # 1.18 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-anthropic-sonnet",
@@ -443,7 +497,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 15 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 70,
         "estimated_energy_micro_wh_per_1k_output": 2_180_000,  # 2.18 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-google-gemini-pro",
@@ -457,7 +511,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 5 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 75,
         "estimated_energy_micro_wh_per_1k_output": 2_430_000,  # 2.43 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-deepseek-v3",
@@ -471,7 +525,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": int(1.10 * _USD_TO_MICRO_RMB),
         "estimated_tokens_per_second": 80,
         "estimated_energy_micro_wh_per_1k_output": 250_000,  # 0.25 Wh/1k (very efficient!)
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-qwen-plus",
@@ -485,9 +539,8 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 2 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 85,
         "estimated_energy_micro_wh_per_1k_output": 420_000,  # 0.42 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
-
     # === Mid-range high-concurrency models ===
     {
         "id": "cloud-openai-4o",
@@ -501,7 +554,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 10 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 100,
         "estimated_energy_micro_wh_per_1k_output": 1_130_000,  # 1.13 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-anthropic-haiku",
@@ -515,7 +568,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": 4 * _USD_TO_MICRO_RMB,
         "estimated_tokens_per_second": 150,
         "estimated_energy_micro_wh_per_1k_output": 830_000,  # 0.83 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-google-flash",
@@ -529,7 +582,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": int(0.6 * _USD_TO_MICRO_RMB),
         "estimated_tokens_per_second": 200,
         "estimated_energy_micro_wh_per_1k_output": 870_000,  # 0.87 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-qwen-turbo",
@@ -543,7 +596,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": int(0.9 * _USD_TO_MICRO_RMB),
         "estimated_tokens_per_second": 200,
         "estimated_energy_micro_wh_per_1k_output": 220_000,  # 0.22 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-doubao-lite",
@@ -557,9 +610,8 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": int(0.3 * _USD_TO_MICRO_RMB),
         "estimated_tokens_per_second": 250,
         "estimated_energy_micro_wh_per_1k_output": 290_000,  # 0.29 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
-
     # === Lightweight models ===
     {
         "id": "cloud-openai-4o-mini",
@@ -573,7 +625,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": int(0.6 * _USD_TO_MICRO_RMB),
         "estimated_tokens_per_second": 300,
         "estimated_energy_micro_wh_per_1k_output": 350_000,  # 0.35 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
     {
         "id": "cloud-google-flash-lite",
@@ -587,7 +639,7 @@ CLOUD_MODEL_SEEDS = (
         "output_rate_micro_rmb_per_million": int(0.3 * _USD_TO_MICRO_RMB),
         "estimated_tokens_per_second": 400,
         "estimated_energy_micro_wh_per_1k_output": 420_000,  # 0.42 Wh/1k
-        "enabled": False,
+        "enabled": True,
     },
 )
 
@@ -601,11 +653,107 @@ async def seed_catalog(session: AsyncSession) -> None:
     existing = set((await session.scalars(select(ModelRecord.id))).all())
     for values in MODEL_SEEDS + CLOUD_MODEL_SEEDS:
         if values["id"] not in existing:
-            session.add(ModelRecord(**values))
+            enriched = dict(values)
+            enriched.setdefault("is_task_classifier", False)
+            if not enriched.get("official_data_source"):
+                enriched["official_data_source"] = _get_official_data_source(
+                    str(enriched["id"]),
+                    str(enriched.get("runtime_name", "")),
+                    str(enriched.get("tier", "")),
+                )
+            session.add(ModelRecord(**enriched))
     await session.commit()
 
 
-def get_model_energy_estimate(model_id: str) -> dict | None:
+def _get_official_data_source(model_id: str, runtime_name: str, tier: str) -> str:
+    """Return official data source citation for a model based on its family/vendor.
+
+    Args:
+        model_id: The model catalog ID.
+        runtime_name: The runtime name (e.g. "cloud:openai/gpt-4o", "qwen2.5:7b").
+        tier: The model tier.
+
+    Returns:
+        A string with official pricing, technical report, and energy benchmark sources.
+    """
+    name = runtime_name.lower()
+    mid = model_id.lower()
+
+    # Cloud providers
+    if "openai" in name:
+        return (
+            "OpenAI 官方定价 https://openai.com/api/pricing ; "
+            "GPT-4 技术报告 arXiv:2303.08774 ; "
+            "能耗估算基准 Watt Counts (arXiv 2607.26571, H100)"
+        )
+    if "anthropic" in name or "claude" in name:
+        return (
+            "Anthropic 官方定价 https://www.anthropic.com/pricing ; "
+            "Claude 3 模型卡 https://www.anthropic.com/news/claude-3-family ; "
+            "能耗估算基准 Watt Counts (H100)"
+        )
+    if "google" in name or "gemini" in name:
+        return (
+            "Google AI 官方定价 https://ai.google.dev/pricing ; "
+            "Gemini 技术报告 https://deepmind.google/technologies/gemini/ ; "
+            "能耗估算基准 Watt Counts (H100)"
+        )
+    if "deepseek" in name:
+        return (
+            "DeepSeek 官方定价 https://platform.deepseek.com/pricing ; "
+            "DeepSeek-V3 技术报告 arXiv:2412.19437 ; "
+            "DeepSeek-R1 技术报告 arXiv:2501.12948 ; "
+            "能耗估算基于 MoE 架构分析 (H100)"
+        )
+    if "alibaba" in name or ("qwen" in mid and "cloud" in mid):
+        return (
+            "阿里云百炼官方定价 https://help.aliyun.com/zh/model-studio/billing-for-model-studio ; "
+            "Qwen 技术报告 https://qwenlm.github.io/ ; "
+            "能耗估算基准 JouleBench (A100)"
+        )
+    if "bytedance" in name or "doubao" in name:
+        return (
+            "火山引擎方舟官方定价 https://www.volcengine.com/docs/82379/1099320 ; "
+            "豆包模型技术文档 https://www.volcengine.com/product/doubao ; "
+            "能耗估算基于 MoE 架构分析 (H100)"
+        )
+
+    # Local open-source models by family
+    if "qwen" in mid:
+        return (
+            "Qwen2.5 官方技术报告 https://qwenlm.github.io/blog/qwen2.5/ ; "
+            "实测基准 JouleBench (arXiv 2608.00008, RTX 4060 Ti Q4)"
+        )
+    if "gemma" in mid:
+        return (
+            "Gemma 官方模型卡 https://ai.google.dev/gemma ; "
+            "Gemma 技术报告 arXiv:2403.08295 ; "
+            "实测基准 JouleBench (arXiv 2608.00008, RTX 4060 Ti Q4)"
+        )
+    if "llama" in mid:
+        return (
+            "Llama 官方模型卡 https://www.llama.com/ ; "
+            "Llama 3 技术报告 arXiv:2407.21783 ; "
+            "实测基准 JouleBench (arXiv 2608.00008, RTX 4060 Ti Q4)"
+        )
+    if "mistral" in mid:
+        return (
+            "Mistral 官方文档 https://docs.mistral.ai/ ; "
+            "Mistral 7B 技术报告 arXiv:2310.06825 ; "
+            "实测基准 JouleBench (arXiv 2608.00008, RTX 4060 Ti Q4)"
+        )
+    if "phi" in mid:
+        return (
+            "Phi-4 官方模型卡 https://huggingface.co/microsoft/phi-4 ; "
+            "Phi-4 技术报告 arXiv:2412.08905 ; "
+            "实测基准 JouleBench (arXiv 2608.00008, RTX 4060 Ti Q4)"
+        )
+
+    # Default for unknown local models
+    return "开源模型官方文档 ; 能耗估算基准 JouleBench (arXiv 2608.00008, RTX 4060 Ti Q4)"
+
+
+def get_model_energy_estimate(model_id: str) -> dict[str, object] | None:
     """Get energy benchmark data for a model from local data files.
 
     Returns dict with j_per_token, wh_per_1k, tokens_per_second, confidence, source
@@ -616,8 +764,11 @@ def get_model_energy_estimate(model_id: str) -> dict | None:
         return None
 
     # Search consumer GPU models
-    for model in data.get("consumer_gpu", {}).get("models", []):
-        if model["id"].replace(":", "-").replace(".", "-") == model_id.replace(":", "-"):
+    consumer = cast(dict[str, object], data.get("consumer_gpu", {}))
+    models_list = cast(list[dict[str, object]], consumer.get("models", []))
+    for model in models_list:
+        model_id_str = cast(str, model["id"])
+        if model_id_str.replace(":", "-").replace(".", "-") == model_id.replace(":", "-"):
             return {
                 "j_per_output_token": model["j_per_output_token"],
                 "wh_per_1k_output": model["wh_per_1k_output"],

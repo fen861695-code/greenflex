@@ -5,19 +5,18 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from greenflex.domain import (
-    ExecutionMode,
     QualityRequirement,
     QualityRiskLevel,
     RecommendationMode,
     TaskType,
 )
 from greenflex.models import ModelRecord
+from greenflex.ports import RecommendationInput
 from greenflex.recommendation import (
     POLICY_VERSION,
     GreenRouterRuleV1,
     hash_recommendation_request,
 )
-from greenflex.ports import RecommendationInput
 
 
 def _make_models() -> list[ModelRecord]:
@@ -151,8 +150,9 @@ class TestGreenRouterPolicy:
         models = _make_models()
         # Impossible budget
         req = _make_input(budget_micro_rmb=1)
-        with pytest.raises(DomainError, match="no_feasible_model"):
+        with pytest.raises(DomainError) as exc_info:
             policy.recommend(request=req, available_models=models)
+        assert exc_info.value.code == "no_feasible_model"
 
     def test_deadline_constraint(self):
         from greenflex.domain import DomainError
@@ -165,8 +165,9 @@ class TestGreenRouterPolicy:
             estimated_output_tokens=10_000,  # would take ~150s on 3B
             deadline=now + timedelta(seconds=1),
         )
-        with pytest.raises(DomainError, match="no_feasible_model"):
+        with pytest.raises(DomainError) as exc_info:
             policy.recommend(request=req, available_models=models, now=now)
+        assert exc_info.value.code == "no_feasible_model"
 
     def test_context_limit_constraint(self):
         from greenflex.domain import DomainError
@@ -177,8 +178,9 @@ class TestGreenRouterPolicy:
             estimated_input_tokens=5000,  # exceeds 4096 context
             estimated_output_tokens=100,
         )
-        with pytest.raises(DomainError, match="no_feasible_model"):
+        with pytest.raises(DomainError) as exc_info:
             policy.recommend(request=req, available_models=models)
+        assert exc_info.value.code == "no_feasible_model"
 
     def test_deterministic_results(self):
         policy = GreenRouterRuleV1()
@@ -189,7 +191,7 @@ class TestGreenRouterPolicy:
         r2 = policy.recommend(request=req, available_models=models, now=now)
         assert r1.recommended_model_id == r2.recommended_model_id
         assert r1.estimated_price_micro_rmb == r2.estimated_price_micro_rmb
-        assert r1.composite_score if hasattr(r1, 'composite_score') else True
+        assert r1.composite_score if hasattr(r1, "composite_score") else True
 
     def test_returns_alternatives(self):
         policy = GreenRouterRuleV1()
@@ -288,18 +290,20 @@ class TestGreenRouterPolicy:
         assert result.recommended_model_id != "qwen2.5-3b-q4"
 
     def test_high_risk_low_confidence_fallback(self):
+        # Code task on economy tier is VERY_HIGH risk; short prompt lowers
+        # confidence to 5500 (8000 - 2000 VERY_HIGH - 500 short), below 6000.
         policy = GreenRouterRuleV1()
         models = _make_models()
-        # Auto mode with very short prompt (low confidence) and high risk
         req = _make_input(
-            task_type=TaskType.GENERATION,
-            estimated_input_tokens=5,  # very short, low confidence
+            mode=RecommendationMode.ECONOMY,
+            task_type=TaskType.CODE,
+            estimated_input_tokens=5,
         )
         result = policy.recommend(request=req, available_models=models)
-        # Should fall back to quality tier due to safety guard
-        # (unless confidence is still high enough)
-        assert result.quality_risk in (QualityRiskLevel.LOW, QualityRiskLevel.MEDIUM) or \
-               "safety_high_risk_fallback" in result.reason_codes
+        # Economy mode would pick 0.5B, but safety guard falls back to quality
+        assert result.recommended_tier == "quality"
+        assert "safety_high_risk_fallback" in result.reason_codes
+        assert result.quality_risk in (QualityRiskLevel.LOW, QualityRiskLevel.MEDIUM)
 
 
 class TestRecommendationAPI:
@@ -372,3 +376,126 @@ class TestRecommendationAPI:
             },
         )
         assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_recommendations_quality_mode(self, api_client):
+        response = await api_client.post(
+            "/api/v1/recommendations",
+            json={
+                "mode": "quality",
+                "task_type": "analysis",
+                "estimated_input_tokens": 256,
+                "estimated_output_tokens": 512,
+                "item_count": 1,
+                "quality_requirement": "high",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["recommended_tier"] in ("quality", "enterprise")
+
+    @pytest.mark.asyncio
+    async def test_recommendations_code_task_safety_guard(self, api_client):
+        """Code task in economy mode with short prompt should trigger safety guard."""
+        response = await api_client.post(
+            "/api/v1/recommendations",
+            json={
+                "mode": "economy",
+                "task_type": "code",
+                "estimated_input_tokens": 5,
+                "estimated_output_tokens": 128,
+                "item_count": 1,
+                "quality_requirement": "standard",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # Safety guard should fall back from economy to at least quality tier
+        assert data["recommended_tier"] in ("quality", "enterprise")
+        assert "safety_high_risk_fallback" in data["reason_codes"]
+
+    @pytest.mark.asyncio
+    async def test_recommendations_shadow_mode_default(self, api_client):
+        response = await api_client.post(
+            "/api/v1/recommendations",
+            json={
+                "mode": "smart",
+                "task_type": "classification",
+                "estimated_input_tokens": 64,
+                "estimated_output_tokens": 32,
+                "item_count": 1,
+                "quality_requirement": "minimum",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["shadow_mode"] is True
+
+    @pytest.mark.asyncio
+    async def test_recommendations_alternatives_present(self, api_client):
+        response = await api_client.post(
+            "/api/v1/recommendations",
+            json={
+                "mode": "smart",
+                "task_type": "summarization",
+                "estimated_input_tokens": 512,
+                "estimated_output_tokens": 128,
+                "item_count": 1,
+                "quality_requirement": "standard",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["alternatives"]) >= 1
+        for alt in data["alternatives"]:
+            assert "model_id" in alt
+            assert "tier" in alt
+            assert "quality_risk" in alt
+
+    @pytest.mark.asyncio
+    async def test_recommendations_confidence_label(self, api_client):
+        response = await api_client.post(
+            "/api/v1/recommendations",
+            json={
+                "mode": "smart",
+                "task_type": "classification",
+                "estimated_input_tokens": 200,
+                "estimated_output_tokens": 50,
+                "item_count": 1,
+                "quality_requirement": "standard",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "confidence_bps" in data
+        assert "confidence_label" in data
+        assert 1000 <= data["confidence_bps"] <= 9500
+
+    @pytest.mark.asyncio
+    async def test_recommendations_invalid_mode(self, api_client):
+        response = await api_client.post(
+            "/api/v1/recommendations",
+            json={
+                "mode": "invalid_mode",
+                "task_type": "classification",
+            },
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_recommendations_candidate_filter(self, api_client):
+        response = await api_client.post(
+            "/api/v1/recommendations",
+            json={
+                "mode": "smart",
+                "task_type": "classification",
+                "estimated_input_tokens": 64,
+                "estimated_output_tokens": 32,
+                "item_count": 1,
+                "quality_requirement": "minimum",
+                "candidate_model_ids": ["gemma3-1b-q4"],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["recommended_model_id"] == "gemma3-1b-q4"
+        assert len(data["alternatives"]) == 0

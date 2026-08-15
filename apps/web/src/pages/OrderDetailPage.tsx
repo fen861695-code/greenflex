@@ -54,6 +54,9 @@ export function OrderDetailPage() {
         <div><span>实际账单</span><strong>{formatRmb(data.actual_price_rmb)}</strong><small>报价 {formatRmb(data.quoted_price_rmb)} <ProvenanceBadge value="simulated" /></small></div>
         <div><span>GPU 总能耗</span><strong>{formatNumber(data.gross_gpu_energy_wh, 6)} Wh</strong><small><ProvenanceBadge value={data.completed_at ? 'measured' : 'estimated'} /></small></div>
         <div><span>位置法碳排</span><strong>{formatNumber(data.location_carbon_g, 6)} g</strong><small><ProvenanceBadge value="estimated" /></small></div>
+        {data.joules_per_output_token && (
+          <div><span>能效 J/tok</span><strong>{data.joules_per_output_token} J</strong><small><ProvenanceBadge value="measured" /></small></div>
+        )}
       </section>
       <section className="order-timeline">
         <div><span>创建</span><strong>{formatDateTime(data.created_at)}</strong></div>

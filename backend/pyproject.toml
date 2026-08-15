@@ -45,7 +45,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "RUF"]
-ignore = ["S101"]
+ignore = ["S101", "RUF001"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -59,7 +59,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["greenflex"]
+source = ["src/greenflex"]
 
 [tool.coverage.report]
 fail_under = 80

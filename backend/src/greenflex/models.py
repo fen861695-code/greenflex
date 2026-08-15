@@ -23,6 +23,9 @@ class ModelRecord(Base):
     output_rate_micro_rmb_per_million: Mapped[int] = mapped_column(Integer)
     estimated_tokens_per_second: Mapped[int] = mapped_column(Integer)
     estimated_energy_micro_wh_per_1k_output: Mapped[int] = mapped_column(Integer)
+    recommended_batch_size: Mapped[int] = mapped_column(Integer, server_default="1", default=1)
+    is_task_classifier: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    official_data_source: Mapped[str | None] = mapped_column(String(512), nullable=True)
     digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 

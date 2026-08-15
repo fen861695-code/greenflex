@@ -4,11 +4,15 @@ from httpx import AsyncClient
 from pytest import MonkeyPatch
 
 
-async def test_catalog_lists_three_local_models(api_client: AsyncClient) -> None:
+async def test_catalog_lists_models(api_client: AsyncClient) -> None:
     response = await api_client.get("/api/v1/models")
     assert response.status_code == 200
     payload = response.json()
-    assert [item["tier"] for item in payload] == ["economy", "balanced", "quality"]
+    # 15 local models + 20 cloud reference models = 35
+    assert len(payload) == 35
+    tiers = {item["tier"] for item in payload}
+    assert {"economy", "balanced", "quality", "enterprise"} <= tiers
+    # Local models without Ollama are unavailable; cloud models always disabled
     assert all(item["available"] is False for item in payload)
 
 
@@ -34,11 +38,12 @@ async def test_quote_order_and_cancel_flow(
     )
     assert quote_response.status_code == 200
     options = quote_response.json()["options"]
-    assert len(options) == 6
+    # 30 enabled models (10 local + 20 cloud) x 2 execution modes
+    assert len(options) == 60
     flexible = next(
         option
         for option in options
-        if option["model_id"] == "qwen2.5-0.5b-q4" and option["execution_mode"] == "flexible"
+        if option["model_id"] == "gemma3-1b-q4" and option["execution_mode"] == "flexible"
     )
     assert flexible["discount_percent"] == "15.00"
     assert flexible["commercial_provenance"] == "simulated"
@@ -65,7 +70,7 @@ async def test_quote_order_and_cancel_flow(
 async def test_preview_reports_unavailable_runtime(api_client: AsyncClient) -> None:
     response = await api_client.post(
         "/api/v1/previews",
-        json={"model_id": "qwen2.5-0.5b-q4", "prompt": "hello"},
+        json={"model_id": "gemma3-1b-q4", "prompt": "hello"},
     )
     assert response.status_code == 503
     assert response.json()["code"] == "inference_unavailable"

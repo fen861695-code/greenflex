@@ -31,6 +31,7 @@ class ModelCatalogItem(ApiModel):
     recommended_for: list[str]
     input_rate_rmb_per_million: str
     output_rate_rmb_per_million: str
+    enabled: bool = True
     available: bool
     availability_detail: str
     rate_provenance: Provenance = Provenance.SIMULATED
@@ -39,7 +40,10 @@ class ModelCatalogItem(ApiModel):
     energy_wh_per_1k_output: str
     carbon_g_per_1k_output: str
     is_cloud_model: bool = False
+    is_task_classifier: bool = False
+    official_data_source: str | None = None
     energy_provenance: str = "estimated"
+    recommended_batch_size: int = 1
 
 
 class PreviewRequest(ApiModel):
@@ -57,8 +61,10 @@ class PreviewResponse(ApiModel):
     latency_ms: str
     gross_gpu_energy_wh: str | None
     incremental_gpu_energy_wh: str | None
+    joules_per_output_token: str | None = None
     telemetry_provenance: Provenance
     telemetry_source: str
+    inference_source: str = "unknown"
 
 
 class BatchItemInput(ApiModel):
@@ -151,6 +157,7 @@ class OrderView(ApiModel):
     gross_gpu_energy_wh: str | None
     incremental_gpu_energy_wh: str | None
     location_carbon_g: str | None
+    joules_per_output_token: str | None = None
     content_purged: bool
     created_at: datetime
     started_at: datetime | None
@@ -185,7 +192,7 @@ class RecommendationRequest(ApiModel):
 
     mode: RecommendationMode = RecommendationMode.SMART
     task_type: TaskType = TaskType.AUTO
-    prompt_preview: str | None = Field(default=None, max_length=512)
+    prompt_preview: str | None = Field(default=None, max_length=32_768)
     system_prompt_preview: str | None = Field(default=None, max_length=256)
     estimated_input_tokens: int = Field(default=128, ge=1, le=32_000)
     estimated_output_tokens: int = Field(default=256, ge=16, le=8_192)
@@ -218,6 +225,25 @@ class RecommendationAlternative(ApiModel):
     reason_codes: list[str]
 
 
+class TaskUnderstandingResponse(ApiModel):
+    """System's natural-language understanding of the user's task."""
+
+    task_type: str
+    task_type_label: str
+    complexity: str
+    complexity_label: str
+    estimated_input_tokens: int
+    estimated_output_tokens: int
+    estimated_item_count: int
+    output_length_hint: str
+    requires_json: bool
+    recommended_tier: str
+    confidence_bps: int
+    confidence_label: str
+    detected_intents: list[str] = []
+    reasoning: str = ""
+
+
 class RecommendationResponse(ApiModel):
     recommendation_id: str
     recommended_model_id: str
@@ -236,7 +262,97 @@ class RecommendationResponse(ApiModel):
     reason_codes: list[str]
     reason_summary: str
     alternatives: list[RecommendationAlternative]
+    task_understanding: TaskUnderstandingResponse | None = None
     policy_version: str
     profile_version: str
     provenance: Provenance = Provenance.SIMULATED
     shadow_mode: bool = True
+
+
+class CarbonCalendarHour(ApiModel):
+    hour: int
+    carbon_g_per_kwh: int
+    price_micro_rmb_per_kwh: int
+    renewable_share_bps: int
+
+
+class CarbonCalendarDay(ApiModel):
+    date: str
+    hours: list[CarbonCalendarHour]
+
+
+class CarbonCalendarResponse(ApiModel):
+    region: str
+    signal_version: str
+    days: list[CarbonCalendarDay]
+
+
+class GridRegionInfo(ApiModel):
+    code: str
+    name_zh: str
+    carbon_g_per_kwh: int
+    renewable_share_bps: int
+
+
+class GridRegionResponse(ApiModel):
+    current: str
+    regions: list[GridRegionInfo]
+
+
+# ---------------------------------------------------------------------------
+# Chat (multi-turn conversation)
+# ---------------------------------------------------------------------------
+
+
+class ChatMessage(ApiModel):
+    role: str = Field(pattern=r"^(user|assistant|system)$")
+    content: str = Field(min_length=1, max_length=32_768)
+
+
+class ChatRequest(ApiModel):
+    model_id: str
+    messages: list[ChatMessage]
+    max_output_tokens: int = Field(default=1024, ge=1, le=32_768)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+
+
+class ChatResponse(ApiModel):
+    model_id: str
+    model_name: str
+    reply: str
+    prompt_tokens: int
+    completion_tokens: int
+    duration_ms: int
+    estimated_price_micro_rmb: int
+    estimated_energy_micro_wh: int
+    estimated_carbon_micro_g: int
+    inference_source: str
+
+
+class CloudApiProviderStatus(ApiModel):
+    provider: str
+    label: str
+    configured: bool
+    key_preview: str | None = None
+    default_base_url: str
+
+
+class CloudApiSettingsResponse(ApiModel):
+    providers: list[CloudApiProviderStatus]
+    timeout_seconds: int
+
+
+class CloudApiSettingsUpdate(ApiModel):
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    deepseek_api_key: str | None = None
+    alibaba_api_key: str | None = None
+    bytedance_api_key: str | None = None
+    google_api_key: str | None = None
+    openai_base_url: str | None = None
+    anthropic_base_url: str | None = None
+    deepseek_base_url: str | None = None
+    alibaba_base_url: str | None = None
+    bytedance_base_url: str | None = None
+    google_base_url: str | None = None
+    timeout_seconds: int | None = Field(default=None, ge=5, le=600)

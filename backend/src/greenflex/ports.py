@@ -23,6 +23,7 @@ class GenerationRequest:
     system_prompt: str | None
     max_output_tokens: int
     temperature: float = 0.2
+    messages: tuple[dict[str, str], ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,7 @@ class GenerationResult:
     prompt_tokens: int
     output_tokens: int
     duration_us: int
+    source: str = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +44,8 @@ class PowerSample:
 
 
 class InferenceProvider(Protocol):
+    source: str
+
     async def available_models(self) -> dict[str, str]: ...
 
     async def generate(self, request: GenerationRequest) -> GenerationResult: ...
@@ -107,6 +111,7 @@ class RecommendationInput:
     execution_mode: ExecutionMode = ExecutionMode.IMMEDIATE
     candidate_model_ids: frozenset[str] | None = None
     prompt_preview: str | None = None  # not stored, used for feature extraction only
+    classifier_tier_floor: str | None = None  # minimum tier from task classifier
 
 
 @dataclass(frozen=True, slots=True)

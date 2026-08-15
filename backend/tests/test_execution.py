@@ -19,11 +19,12 @@ from greenflex.catalog import seed_catalog
 from greenflex.config import Settings
 from greenflex.container import ServiceContainer
 from greenflex.db import Base
-from greenflex.domain import DomainError, OrderStatus
+from greenflex.domain import DomainError, ItemStatus, OrderStatus
 from greenflex.execution import PersistentOrderWorker
 from greenflex.models import ExecutionRecord, OrderRecord, PassportRecord
 from greenflex.policies import LowestImpactSlotPolicy, TieredPricingPolicy
 from greenflex.ports import GenerationRequest, GenerationResult, PowerSample
+from greenflex.recommendation import GreenRouterRuleV1
 from greenflex.schemas import BatchItemInput, QuoteRequest
 from greenflex.services import create_order, create_quotes, purge_order_content_at
 from greenflex.signals import SyntheticEnergySignalProvider
@@ -89,6 +90,7 @@ async def test_worker_retries_settles_and_issues_content_free_passport(tmp_path:
         signals=signals,
         pricing=TieredPricingPolicy(),
         scheduling=LowestImpactSlotPolicy(signals),
+        recommendation=GreenRouterRuleV1(shadow_mode=True),
     )
     now = datetime(2026, 7, 19, 9, 0, tzinfo=UTC)
     async with factory() as session:
@@ -108,7 +110,7 @@ async def test_worker_retries_settles_and_issues_content_free_passport(tmp_path:
                         max_output_tokens=32,
                     ),
                 ],
-                model_id="qwen2.5-0.5b-q4",
+                model_id="gemma3-1b-q4",
             ),
             now=now,
         )
@@ -174,4 +176,162 @@ async def test_worker_retries_settles_and_issues_content_free_passport(tmp_path:
     assert purged_execution is not None
     assert purged_execution.raw_artifact_path is None
     assert purged_execution.raw_artifact_sha256 == execution.raw_artifact_sha256
+    await engine.dispose()
+
+
+async def test_worker_processes_batch_concurrently(tmp_path: Path) -> None:
+    """Multiple items in the same batch should be inferred concurrently."""
+    factory, engine = await _database(tmp_path / "batch.db")
+    inference = FakeInferenceProvider()
+    signals = SyntheticEnergySignalProvider()
+    container = ServiceContainer(
+        inference=inference,
+        telemetry=FakeTelemetryProvider(),
+        signals=signals,
+        pricing=TieredPricingPolicy(),
+        scheduling=LowestImpactSlotPolicy(signals),
+        recommendation=GreenRouterRuleV1(shadow_mode=True),
+    )
+    settings = Settings(artifact_dir=str(tmp_path / "artifacts"))
+    worker = PersistentOrderWorker(
+        factory, container, settings, owner="test-worker", clock=lambda: now
+    )
+
+    now = datetime(2026, 7, 19, 9, 0, tzinfo=UTC)
+    async with factory() as session:
+        quotes = await create_quotes(
+            session,
+            container,
+            QuoteRequest(
+                items=[
+                    BatchItemInput(
+                        client_item_id=f"item-{i}", prompt=f"prompt-{i}", max_output_tokens=32
+                    )
+                    for i in range(4)
+                ],
+            ),
+            now=now,
+        )
+        immediate = next(q for q in quotes if q.execution_mode == "immediate")
+        order_view = await create_order(session, immediate.quote_id, now=now)
+
+    assert await worker.run_once() is True
+
+    async with factory() as session:
+        order = await session.scalar(
+            select(OrderRecord)
+            .where(OrderRecord.id == order_view.id)
+            .options(selectinload(OrderRecord.items))
+        )
+
+    assert order is not None
+    assert order.status == OrderStatus.SUCCEEDED.value
+    succeeded = sum(1 for item in order.items if item.status == ItemStatus.SUCCEEDED.value)
+    failed = sum(1 for item in order.items if item.status == ItemStatus.FAILED.value)
+    assert succeeded == 4
+    assert failed == 0
+    # Each unique prompt should have been called exactly once (no retry needed)
+    for i in range(4):
+        assert inference.calls[f"prompt-{i}"] == 1
+    await engine.dispose()
+
+
+async def test_worker_all_items_fail(tmp_path: Path) -> None:
+    """When all items fail, order should be FAILED."""
+    factory, engine = await _database(tmp_path / "allfail.db")
+    inference = FakeInferenceProvider()
+    signals = SyntheticEnergySignalProvider()
+    container = ServiceContainer(
+        inference=inference,
+        telemetry=FakeTelemetryProvider(),
+        signals=signals,
+        pricing=TieredPricingPolicy(),
+        scheduling=LowestImpactSlotPolicy(signals),
+        recommendation=GreenRouterRuleV1(shadow_mode=True),
+    )
+    now = datetime(2026, 7, 19, 9, 0, tzinfo=UTC)
+    async with factory() as session:
+        quotes = await create_quotes(
+            session,
+            container,
+            QuoteRequest(
+                items=[
+                    BatchItemInput(
+                        client_item_id="fail-1", prompt="synthetic-failure", max_output_tokens=32
+                    ),
+                    BatchItemInput(
+                        client_item_id="fail-2", prompt="synthetic-failure", max_output_tokens=32
+                    ),
+                ],
+            ),
+            now=now,
+        )
+        immediate = next(q for q in quotes if q.execution_mode == "immediate")
+        order_view = await create_order(session, immediate.quote_id, now=now)
+
+    settings = Settings(artifact_dir=str(tmp_path / "artifacts"))
+    worker = PersistentOrderWorker(
+        factory, container, settings, owner="test-worker", clock=lambda: now
+    )
+
+    assert await worker.run_once() is True
+
+    async with factory() as session:
+        order = await session.scalar(
+            select(OrderRecord)
+            .where(OrderRecord.id == order_view.id)
+            .options(selectinload(OrderRecord.items))
+        )
+
+    assert order is not None
+    assert order.status == OrderStatus.FAILED.value
+    succeeded = sum(1 for item in order.items if item.status == ItemStatus.SUCCEEDED.value)
+    failed = sum(1 for item in order.items if item.status == ItemStatus.FAILED.value)
+    assert succeeded == 0
+    assert failed == 2
+    # Each failure should have been retried once
+    assert inference.calls["synthetic-failure"] == 4  # 2 items * 2 attempts
+    await engine.dispose()
+
+
+async def test_worker_skips_already_completed_order(tmp_path: Path) -> None:
+    """Processing an order with no pending items should not error."""
+    factory, engine = await _database(tmp_path / "skip.db")
+    inference = FakeInferenceProvider()
+    signals = SyntheticEnergySignalProvider()
+    container = ServiceContainer(
+        inference=inference,
+        telemetry=FakeTelemetryProvider(),
+        signals=signals,
+        pricing=TieredPricingPolicy(),
+        scheduling=LowestImpactSlotPolicy(signals),
+        recommendation=GreenRouterRuleV1(shadow_mode=True),
+    )
+    now = datetime(2026, 7, 19, 9, 0, tzinfo=UTC)
+    async with factory() as session:
+        quotes = await create_quotes(
+            session,
+            container,
+            QuoteRequest(
+                items=[
+                    BatchItemInput(client_item_id="item-1", prompt="prompt-1", max_output_tokens=32)
+                ],
+            ),
+            now=now,
+        )
+        immediate = next(q for q in quotes if q.execution_mode == "immediate")
+        await create_order(session, immediate.quote_id, now=now)
+
+    settings = Settings(artifact_dir=str(tmp_path / "artifacts"))
+    worker = PersistentOrderWorker(
+        factory, container, settings, owner="test-worker", clock=lambda: now
+    )
+
+    # First run completes the order
+    assert await worker.run_once() is True
+    # Second run should find no pending orders
+    assert await worker.run_once() is False
+
+    # Inference should only have been called once
+    assert inference.calls["prompt-1"] == 1
     await engine.dispose()

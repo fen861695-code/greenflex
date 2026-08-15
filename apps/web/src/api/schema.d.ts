@@ -293,10 +293,18 @@ export interface components {
             input_rate_rmb_per_million: string;
             /** Output Rate Rmb Per Million */
             output_rate_rmb_per_million: string;
+            /** @default true */
+            enabled?: boolean;
             /** Available */
             available: boolean;
             /** Availability Detail */
             availability_detail: string;
+            /** Estimated Tokens Per Second */
+            estimated_tokens_per_second: number;
+            /** Is Task Classifier */
+            is_task_classifier: boolean;
+            /** Official Data Source */
+            official_data_source: string | null;
             /** @default simulated */
             rate_provenance: components["schemas"]["Provenance"];
         };
@@ -304,7 +312,7 @@ export interface components {
          * ModelTier
          * @enum {string}
          */
-        ModelTier: "economy" | "balanced" | "quality";
+        ModelTier: "economy" | "balanced" | "quality" | "enterprise";
         /** OrderItemView */
         OrderItemView: {
             /** Client Item Id */
@@ -361,6 +369,8 @@ export interface components {
             incremental_gpu_energy_wh: string | null;
             /** Location Carbon G */
             location_carbon_g: string | null;
+            /** Joules Per Output Token */
+            joules_per_output_token?: string | null;
             /** Content Purged */
             content_purged: boolean;
             /**
@@ -423,6 +433,8 @@ export interface components {
             gross_gpu_energy_wh: string | null;
             /** Incremental Gpu Energy Wh */
             incremental_gpu_energy_wh: string | null;
+            /** Joules Per Output Token */
+            joules_per_output_token?: string | null;
             telemetry_provenance: components["schemas"]["Provenance"];
             /** Telemetry Source */
             telemetry_source: string;

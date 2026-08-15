@@ -76,7 +76,9 @@ class TaskType(StrEnum):
     ANALYSIS = "analysis"
     GENERATION = "generation"
     CODE = "code"
+    TRANSLATION = "translation"
     AUTO = "auto"
+    GENERAL = "general"
 
 
 class ComplexityLevel(StrEnum):

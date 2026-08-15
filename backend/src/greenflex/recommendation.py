@@ -19,12 +19,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Sequence
 
 from greenflex.domain import (
-    ComplexityLevel,
     ExecutionMode,
     QualityRequirement,
     QualityRiskLevel,
@@ -92,20 +91,20 @@ _TASK_TIER_RISK: dict[TaskType, dict[str, QualityRiskLevel]] = {
     },
     TaskType.GENERATION: {
         "economy": QualityRiskLevel.HIGH,
-        "balanced": QualityRiskLevel.MEDIUM,
+        "balanced": QualityRiskLevel.LOW,
         "quality": QualityRiskLevel.LOW,
         "enterprise": QualityRiskLevel.LOW,
     },
     TaskType.ANALYSIS: {
         "economy": QualityRiskLevel.HIGH,
-        "balanced": QualityRiskLevel.MEDIUM,
+        "balanced": QualityRiskLevel.LOW,
         "quality": QualityRiskLevel.LOW,
         "enterprise": QualityRiskLevel.LOW,
     },
     TaskType.CODE: {
         "economy": QualityRiskLevel.VERY_HIGH,
-        "balanced": QualityRiskLevel.HIGH,
-        "quality": QualityRiskLevel.MEDIUM,
+        "balanced": QualityRiskLevel.MEDIUM,
+        "quality": QualityRiskLevel.LOW,
         "enterprise": QualityRiskLevel.LOW,
     },
     TaskType.AUTO: {
@@ -181,6 +180,7 @@ class GreenRouterRuleV1:
         if not feasible:
             reasons = [c.rejection_reason for c in candidates if c.rejection_reason]
             from greenflex.domain import DomainError
+
             raise DomainError(
                 "no_feasible_model",
                 "没有满足约束的可用模型: " + "; ".join(filter(None, reasons)),
@@ -200,7 +200,7 @@ class GreenRouterRuleV1:
             and confidence_bps < 6000
         ):
             quality_candidates = [
-                c for c in scored if _TIER_ORDER.get(c.model.tier, -1) >= _TIER_ORDER["quality"]
+                c for c in scored if _TIER_ORDER.get(c.tier, -1) >= _TIER_ORDER["quality"]
             ]
             if quality_candidates:
                 selected = min(quality_candidates, key=lambda c: c.composite_score)
@@ -274,9 +274,7 @@ class GreenRouterRuleV1:
         carbon = energy * self._carbon_g_per_kwh // 1_000_000
 
         # Execution time estimate
-        execution_seconds = (
-            total_output // max(1, model.estimated_tokens_per_second) + 1
-        )
+        execution_seconds = total_output // max(1, model.estimated_tokens_per_second) + 1
 
         # Wait time estimate (simple queue model)
         wait_seconds = self._queue_depth * 3  # ~3s per queued item
@@ -308,12 +306,21 @@ class GreenRouterRuleV1:
             if _TIER_ORDER.get(model.tier, 0) < _TIER_ORDER["quality"]:
                 reasons.append("quality_floor_critical")
         elif request.quality_requirement == QualityRequirement.HIGH:
-            if _TIER_ORDER.get(model.tier, 0) < _TIER_ORDER["balanced"]:
+            if _TIER_ORDER.get(model.tier, 0) < _TIER_ORDER["quality"]:
                 reasons.append("quality_floor_high")
 
-        # 5. Task capability (code/complex reasoning excludes 0.5B)
-        if request.task_type in (TaskType.CODE,) and model.tier == "economy":
-            reasons.append("task_capability_excluded")
+        # 4b. Classifier tier floor: the task classifier recommends a
+        #     minimum tier based on task type + complexity.  This ensures
+        #     e.g. a multi-class classification task doesn't end up on
+        #     an economy model even in SMART/STANDARD mode.
+        if request.classifier_tier_floor:
+            floor = _TIER_ORDER.get(request.classifier_tier_floor, 0)
+            if floor > 0 and _TIER_ORDER.get(model.tier, 0) < floor:
+                reasons.append("classifier_tier_floor")
+
+        # 5. Task capability note: code/complex tasks on economy tier carry
+        #    VERY_HIGH quality risk; the safety guard will fall back to quality
+        #    tier when confidence is low, so we do not hard-exclude them here.
 
         # 6. Economy mode gating for 0.5B
         if model.tier == "economy" and request.mode not in (
@@ -395,9 +402,7 @@ class GreenRouterRuleV1:
 
         return scored
 
-    def _candidate_reasons(
-        self, c: _CandidateEstimate, request: RecommendationInput
-    ) -> list[str]:
+    def _candidate_reasons(self, c: _CandidateEstimate, request: RecommendationInput) -> list[str]:
         reasons: list[str] = []
         if c.quality_risk == QualityRiskLevel.LOW:
             reasons.append("quality_risk_low")
@@ -417,9 +422,7 @@ class GreenRouterRuleV1:
     # Mode-specific selection
     # ------------------------------------------------------------------
 
-    def _select_by_mode(
-        self, scored: list[ModelScore], request: RecommendationInput
-    ) -> ModelScore:
+    def _select_by_mode(self, scored: list[ModelScore], request: RecommendationInput) -> ModelScore:
         if request.mode == RecommendationMode.QUALITY:
             # Quality mode: pick highest tier, then best score
             quality = [c for c in scored if c.tier == "quality"]
@@ -467,9 +470,7 @@ class GreenRouterRuleV1:
 
         return max(1000, min(9500, confidence))
 
-    def _build_reason_summary(
-        self, selected: ModelScore, request: RecommendationInput
-    ) -> str:
+    def _build_reason_summary(self, selected: ModelScore, request: RecommendationInput) -> str:
         parts: list[str] = []
         if selected.tier == "quality":
             parts.append("推荐高质量模型以确保输出质量")
@@ -497,6 +498,7 @@ class GreenRouterRuleV1:
 # ---------------------------------------------------------------------------
 # Request hashing (for audit; no prompt content stored)
 # ---------------------------------------------------------------------------
+
 
 def hash_recommendation_request(
     *,

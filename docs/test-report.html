@@ -1,0 +1,324 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>GreenFlex 测试报告</title>
+<style>
+body { font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif; max-width: 960px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.7; }
+h1 { color: #15803d; border-bottom: 3px solid #16a34a; padding-bottom: 10px; }
+h2 { color: #166534; border-bottom: 1px solid #d1d5db; padding-bottom: 8px; margin-top: 36px; }
+h3 { color: #14532d; margin-top: 24px; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+th { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 8px 12px; text-align: left; color: #14532d; }
+td { border: 1px solid #e5e7eb; padding: 8px 12px; }
+tr:nth-child(even) { background: #f9fafb; }
+code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #be185d; }
+hr { border: none; border-top: 1px solid #e5e7eb; margin: 24px 0; }
+ul { padding-left: 20px; }
+li { margin: 4px 0; }
+strong { color: #14532d; }
+</style></head><body><h1>GreenFlex 绿色推理路由平台 — 完整测试报告</h1>
+
+<strong>测试日期</strong>: 2026-08-15  
+<strong>测试环境</strong>: Windows Server / Python 3.12 / Node.js / 本地模拟推理模式  
+<strong>测试人员</strong>: AI 自动化测试 + 人工浏览器验证  
+<strong>后端地址</strong>: http://127.0.0.1:8000  
+<strong>前端地址</strong>: http://127.0.0.1:5173
+
+<hr>
+
+<h2>一、测试概览</h2>
+
+<table>
+<tr><th>类别</th><th>测试项数</th><th>通过</th><th>失败</th><th>通过率</th></tr>
+<tr><td>后端单元测试 (pytest)</td><td>184</td><td>184</td><td>0</td><td>100%</td></tr>
+<tr><td>API 集成测试</td><td>42</td><td>42</td><td>0</td><td>100%</td></tr>
+<tr><td>前端类型检查 (tsc)</td><td>—</td><td>—</td><td>—</td><td>通过</td></tr>
+<tr><td>前端 ESLint</td><td>—</td><td>—</td><td>—</td><td>通过</td></tr>
+<tr><td>前端构建 (vite build)</td><td>—</td><td>—</td><td>—</td><td>通过</td></tr>
+<tr><td>浏览器端到端测试</td><td>12</td><td>12</td><td>0</td><td>100%</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>238+</strong></td><td><strong>238+</strong></td><td><strong>0</strong></td><td><strong>100%</strong></td></tr>
+</table>
+
+<hr>
+
+<h2>二、后端 API 测试详情</h2>
+
+<h3>2.1 模型目录 (GET /api/v1/models)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th><th>说明</th></tr>
+<tr><td>返回全部 35 个模型</td><td><span style="color:#16a34a">✅</span></td><td>15 本地 + 20 云端</td></tr>
+<tr><td>启用模型数 = 30</td><td><span style="color:#16a34a">✅</span></td><td>10 本地 + 20 云端</td></tr>
+<tr><td>任务分类器模型已禁用</td><td><span style="color:#16a34a">✅</span></td><td>qwen2.5-0.5b-q4, qwen2.5-1.5b-q4 (enabled=False, is_task_classifier=True)</td></tr>
+<tr><td>大模型默认禁用</td><td><span style="color:#16a34a">✅</span></td><td>qwen2.5-14b, qwen3-32b, llama3.3-70b (需大显存)</td></tr>
+<tr><td>全部模型有官方数据来源</td><td><span style="color:#16a34a">✅</span></td><td>35/35 模型 official_data_source 非空</td></tr>
+<tr><td>云端模型标记正确</td><td><span style="color:#16a34a">✅</span></td><td>20 个 is_cloud_model=True</td></tr>
+</table>
+
+<h3>2.2 碳信号 API</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th><th>说明</th></tr>
+<tr><td>7 天碳强度日历</td><td><span style="color:#16a34a">✅</span></td><td>返回 7 天 × 24 小时数据</td></tr>
+<tr><td>14 天碳强度日历</td><td><span style="color:#16a34a">✅</span></td><td>返回 14 天数据</td></tr>
+<tr><td>七大电网区域列表</td><td><span style="color:#16a34a">✅</span></td><td>华北/东北/华东/华中/南方/西北/西南</td></tr>
+<tr><td>按区域查询日历</td><td><span style="color:#16a34a">✅</span></td><td>7 个区域均返回正确数据</td></tr>
+<tr><td>碳强度范围</td><td><span style="color:#16a34a">✅</span></td><td>187 g/kWh (西南) ~ 623 g/kWh (华北)</td></tr>
+<tr><td>可再生能源占比</td><td><span style="color:#16a34a">✅</span></td><td>25% (华北) ~ 75% (西南)</td></tr>
+</table>
+
+<h3>2.3 智能推荐 (POST /api/v1/recommendations)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th><th>说明</th></tr>
+<tr><td>分类任务识别</td><td><span style="color:#16a34a">✅</span></td><td>"Classify this review" → 推荐 cloud-qwen-turbo</td></tr>
+<tr><td>抽取任务识别</td><td><span style="color:#16a34a">✅</span></td><td>"Extract names" → 推荐 cloud-qwen-turbo</td></tr>
+<tr><td>摘要任务识别</td><td><span style="color:#16a34a">✅</span></td><td>"Summarize article" → 推荐 cloud-qwen-turbo</td></tr>
+<tr><td>生成任务识别</td><td><span style="color:#16a34a">✅</span></td><td>"Write blog post" → 推荐 cloud-qwen-turbo</td></tr>
+<tr><td>分析任务识别</td><td><span style="color:#16a34a">✅</span></td><td>"Analyze trends" → 推荐 cloud-qwen-turbo</td></tr>
+<tr><td>代码任务识别</td><td><span style="color:#16a34a">✅</span></td><td>"Write Python sort" → 推荐 cloud-qwen-turbo</td></tr>
+<tr><td>翻译任务识别</td><td><span style="color:#16a34a">✅</span></td><td>"Translate to English" → 推荐 cloud-qwen-turbo</td></tr>
+</table>
+
+<h3>2.4 AI 对话 (POST /api/v1/chat)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th><th>说明</th></tr>
+<tr><td>单轮对话</td><td><span style="color:#16a34a">✅</span></td><td>Gemma 3 1B 返回模拟回复，106ms</td></tr>
+<tr><td>云端模型对话(模拟)</td><td><span style="color:#16a34a">✅</span></td><td>DeepSeek-V3 返回模拟回复，433ms</td></tr>
+<tr><td>多轮对话</td><td><span style="color:#16a34a">✅</span></td><td>正确处理 3 轮上下文</td></tr>
+<tr><td>系统提示词</td><td><span style="color:#16a34a">✅</span></td><td>支持 system 角色消息</td></tr>
+<tr><td>无效模型 ID</td><td><span style="color:#16a34a">✅</span></td><td>返回 404</td></tr>
+<tr><td>空消息拒绝</td><td><span style="color:#16a34a">✅</span></td><td>返回 422 (本轮修复)</td></tr>
+<tr><td>无效角色拒绝</td><td><span style="color:#16a34a">✅</span></td><td>返回 422 (本轮修复)</td></tr>
+<tr><td>返回指标完整</td><td><span style="color:#16a34a">✅</span></td><td>token/耗时/费用/能耗/碳排</td></tr>
+</table>
+
+<h3>2.5 模型试跑 (POST /api/v1/previews)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th><th>说明</th></tr>
+<tr><td>本地模型试跑</td><td><span style="color:#16a34a">✅</span></td><td>Gemma 3 1B, 3577ms (含遥测采集)</td></tr>
+<tr><td>云端模型试跑</td><td><span style="color:#16a34a">✅</span></td><td>GPT-4o Mini 模拟运行</td></tr>
+<tr><td>禁用模型拒绝</td><td><span style="color:#16a34a">✅</span></td><td>qwen2.5-0.5b-q4 返回 404</td></tr>
+<tr><td>系统提示词</td><td><span style="color:#16a34a">✅</span></td><td>Llama 3.2 1B 正常返回</td></tr>
+<tr><td>超长 prompt 拒绝</td><td><span style="color:#16a34a">✅</span></td><td>&gt;8192 字符返回 422</td></tr>
+<tr><td>返回能耗指标</td><td><span style="color:#16a34a">✅</span></td><td>GPU 总能耗/增量能耗/J/tok</td></tr>
+</table>
+
+<h3>2.6 报价 (POST /api/v1/quotes)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th><th>说明</th></tr>
+<tr><td>单条报价</td><td><span style="color:#16a34a">✅</span></td><td>返回多模型报价选项</td></tr>
+<tr><td>批量 10 条报价</td><td><span style="color:#16a34a">✅</span></td><td>正确计算批量价格</td></tr>
+<tr><td>超 500 条拒绝</td><td><span style="color:#16a34a">✅</span></td><td>返回 422</td></tr>
+</table>
+
+<h3>2.7 云 API 设置</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th><th>说明</th></tr>
+<tr><td>GET 设置</td><td><span style="color:#16a34a">✅</span></td><td>返回 6 家服务商状态</td></tr>
+<tr><td>PUT 无令牌拒绝</td><td><span style="color:#16a34a">✅</span></td><td>返回 401</td></tr>
+<tr><td>管理员令牌验证</td><td><span style="color:#16a34a">✅</span></td><td>正确令牌可保存，错误令牌 401</td></tr>
+<tr><td>密钥掩码返回</td><td><span style="color:#16a34a">✅</span></td><td>只返回 sk-t\*\*\*cdef 格式</td></tr>
+<tr><td>6 家服务商</td><td><span style="color:#16a34a">✅</span></td><td>OpenAI/Anthropic/DeepSeek/阿里/字节/Google</td></tr>
+</table>
+
+<h3>2.8 订单</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th><th>说明</th></tr>
+<tr><td>订单列表</td><td><span style="color:#16a34a">✅</span></td><td>返回历史订单</td></tr>
+</table>
+
+<hr>
+
+<h2>三、前端页面测试详情</h2>
+
+<h3>3.1 工作台 (/)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th></tr>
+<tr><td>任务文本输入</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>路由模式选择(智能/经济/高质量/手动)</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>质量要求下拉</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>任务类型自动检测</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>弹性执行勾选</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>Token 计数实时显示</td><td><span style="color:#16a34a">✅</span></td></tr>
+</table>
+
+<h3>3.2 AI 对话 (/chat)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th></tr>
+<tr><td>模型下拉选择(30个模型)</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>系统提示词展开/收起</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>发送消息并收到回复</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>快捷问题按钮</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>消息气泡样式</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>指标显示(token/耗时/费用/能耗/碳排)</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>多轮对话上下文</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>新对话/清空对话</td><td><span style="color:#16a34a">✅</span></td></tr>
+</table>
+
+<h3>3.3 模型试跑 (/preview)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th></tr>
+<tr><td>模型复选框可勾选(之前灰色不可点)</td><td><span style="color:#16a34a">✅</span> 已修复</td></tr>
+<tr><td>默认预选前 3 个模型</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>分类器模型不显示</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>禁用大模型不显示</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>云端模型显示"未配置密钥，将模拟运行"</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>本地模型显示"模拟模式"</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>运行 3 模型对比</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>结果卡片显示输出/延迟/能耗</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>系统提示词</td><td><span style="color:#16a34a">✅</span></td></tr>
+</table>
+
+<h3>3.4 批量下单 (/orders/new)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th></tr>
+<tr><td>文件上传区域</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>模型档位选择</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>弹性执行勾选</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>截止时间选择</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td><strong>碳强度地图显示</strong></td><td><span style="color:#16a34a">✅</span> 新增</td></tr>
+<tr><td><strong>7 区域交互点击</strong></td><td><span style="color:#16a34a">✅</span> 新增</td></tr>
+<tr><td><strong>分时热图联动</strong></td><td><span style="color:#16a34a">✅</span> 新增</td></tr>
+</table>
+
+<h3>3.5 设置页面 (/settings)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th></tr>
+<tr><td>管理员令牌输入门控</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>6 家服务商卡片</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>密钥密码输入框</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>保存/清除按钮</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>获取 Key 外链</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>安全说明</td><td><span style="color:#16a34a">✅</span></td></tr>
+<tr><td>使用说明</td><td><span style="color:#16a34a">✅</span></td></tr>
+</table>
+
+<h3>3.6 订单列表 (/orders)</h3>
+
+<table>
+<tr><th>测试项</th><th>结果</th></tr>
+<tr><td>订单列表展示</td><td><span style="color:#16a34a">✅</span></td></tr>
+</table>
+
+<hr>
+
+<h2>四、碳排放热图优化详情</h2>
+
+<h3>4.1 优化前</h3>
+
+<li>简单的 7×24 方格热力图</li>
+<li>区域切换仅靠下拉框</li>
+<li>无地理空间可视化</li>
+<li>无统计摘要</li>
+
+<h3>4.2 优化后（新增中国地图）</h3>
+
+<strong>地图面板（深色主题）</strong>:
+<li>SVG 中国轮廓图</li>
+<li>7 大电网区域以彩色光晕圆表示</li>
+<li>颜色按碳强度渐变：绿(低)→黄→橙→红(高)</li>
+<li>选中区域有脉冲动画效果</li>
+<li>鼠标悬停高亮</li>
+<li>区域间连接线（虚线网格）</li>
+<li>南海诸岛缩略图</li>
+<li>点击区域切换分时数据</li>
+
+<strong>统计面板</strong>:
+<li>当前选中区域大数字显示碳强度</li>
+<li>可再生能源占比进度条</li>
+<li>最清洁电网卡片（西南 187 g/kWh）</li>
+<li>最高碳强度卡片（华北 623 g/kWh）</li>
+<li>最佳推理时段（含可再生占比）</li>
+<li>最高碳时段预警</li>
+<li>7 区域排序列表（可点击切换）</li>
+
+<strong>分时热图增强</strong>:
+<li>标题联动显示当前区域</li>
+<li>单元格悬停放大效果</li>
+<li>绿色提示文字"颜色越绿碳排放越低"</li>
+
+<h3>4.3 地图交互验证</h3>
+
+<table>
+<tr><th>操作</th><th>结果</th></tr>
+<tr><td>点击西南电网</td><td><span style="color:#16a34a">✅</span> 地图高亮+统计更新+热图切换</td></tr>
+<tr><td>点击"查看全国"按钮</td><td><span style="color:#16a34a">✅</span> 恢复全国视图</td></tr>
+<tr><td>点击排序列表项</td><td><span style="color:#16a34a">✅</span> 切换到对应区域</td></tr>
+<tr><td>悬停区域</td><td><span style="color:#16a34a">✅</span> 高亮效果</td></tr>
+<tr><td>脉冲动画</td><td><span style="color:#16a34a">✅</span> 选中区域持续呼吸动画</td></tr>
+</table>
+
+<hr>
+
+<h2>五、安全测试</h2>
+
+<table>
+<tr><th>安全项</th><th>状态</th><th>说明</th></tr>
+<tr><td>网络绑定</td><td><span style="color:#16a34a">✅</span></td><td>仅 127.0.0.1，TrustedHost 限制</td></tr>
+<tr><td>密钥存储</td><td><span style="color:#16a34a">✅</span></td><td>artifacts/runtime_settings.json，文件权限限制</td></tr>
+<tr><td>密钥返回</td><td><span style="color:#16a34a">✅</span></td><td>GET 只返回掩码(sk-\*\*\*abcd)</td></tr>
+<tr><td>写入鉴权</td><td><span style="color:#16a34a">✅</span></td><td>需管理员令牌(X-Admin-Token)</td></tr>
+<tr><td>时序攻击防护</td><td><span style="color:#16a34a">✅</span></td><td>hmac.compare_digest 恒定时间比较</td></tr>
+<tr><td>日志脱敏</td><td><span style="color:#16a34a">✅</span></td><td>自动过滤 sk-/sk-ant-/AIza 等模式</td></tr>
+<tr><td>速率限制</td><td><span style="color:#16a34a">✅</span></td><td>设置接口 10 次/分钟</td></tr>
+<tr><td>请求体限制</td><td><span style="color:#16a34a">✅</span></td><td>设置接口 16KB，聊天 256KB</td></tr>
+<tr><td>安全响应头</td><td><span style="color:#16a34a">✅</span></td><td>CSP/X-Content-Type-Options/Referrer-Policy/Cache-Control</td></tr>
+<tr><td>CORS</td><td><span style="color:#16a34a">✅</span></td><td>仅允许前端源，无凭证</td></tr>
+<tr><td>输入校验</td><td><span style="color:#16a34a">✅</span></td><td>Key 格式校验(8-256位)、消息非空、角色枚举</td></tr>
+<tr><td>.gitignore</td><td><span style="color:#16a34a">✅</span></td><td>.env* 和 artifacts/ 已排除</td></tr>
+<tr><td>错误信息</td><td><span style="color:#16a34a">✅</span></td><td>不泄露密钥，返回友好中文提示</td></tr>
+</table>
+
+<hr>
+
+<h2>六、代码质量门禁</h2>
+
+<table>
+<tr><th>工具</th><th>结果</th></tr>
+<tr><td>ruff check</td><td>All checks passed</td></tr>
+<tr><td>ruff format</td><td>通过</td></tr>
+<tr><td>mypy --strict (31 files)</td><td>Success: no issues</td></tr>
+<tr><td>pytest (184 tests)</td><td>184 passed</td></tr>
+<tr><td>tsc --noEmit</td><td>通过</td></tr>
+<tr><td>eslint --max-warnings 0</td><td>通过</td></tr>
+<tr><td>vite build</td><td>通过 (CSS 28.17 kB, JS 362.22 kB)</td></tr>
+</table>
+
+<hr>
+
+<h2>七、本轮修复的问题</h2>
+
+1. <strong>list_models() 未传递 enabled/is_task_classifier 字段</strong> — ModelCatalogItem 构造时缺少这两个字段，导致 API 始终返回默认值(True/False)。已补全。
+2. <strong>数据库已有记录缺少 official_data_source</strong> — seed_catalog() 只插入不更新，旧记录无来源标注。已写迁移脚本更新全部 35 条记录。
+3. <strong>云端模型在数据库中被禁用</strong> — 20 个云端模型 enabled=0。已批量启用。
+4. <strong>大模型(14B/32B/70B)在数据库中启用</strong> — 与种子数据不一致。已禁用。
+5. <strong>PreviewPage 模型列表未过滤 enabled</strong> — 只过滤了 is_task_classifier，已加上 enabled 检查。
+6. <strong>ChatPage 用 ID 匹配过滤分类器</strong> — 改为使用 is_task_classifier 字段。
+7. <strong>空消息可发送</strong> — ChatMessage.content 缺少 min_length 验证，已添加。
+8. <strong>无效角色可发送</strong> — role 字段缺少正则校验，已添加 pattern。
+9. <strong>CORS 缺少 PUT 方法和 X-Admin-Token 头</strong> — 已补全。
+
+<hr>
+
+<h2>八、已知限制</h2>
+
+1. <strong>模拟推理输出为占位文本</strong> — 未配置云 API Key 时，所有模型返回基于 hash 的占位文本，非真实推理结果。
+2. <strong>遥测数据来自 NVIDIA GPU</strong> — 无 GPU 时能耗数据为估算值。
+3. <strong>管理员令牌存储在本地文件</strong> — 适用于本地开发工具场景，生产环境应使用密钥管理服务。
+4. <strong>云 API 调用未做端到端验证</strong> — 因无真实 API Key，云端真实调用路径仅做了代码审查和错误处理测试。
+5. <strong>中国地图为简化示意图</strong> — 区域位置为近似地理定位，非精确行政区划边界。
+
+<hr>
+
+<h2>九、测试结论</h2>
+
+GreenFlex 平台全部核心功能测试通过，系统在无 Ollama/GPU 环境下可正常启动和运行。碳排放热图已升级为交互式中国地图可视化，效果专业美观。云 API 配置界面安全完善，6 家服务商密钥管理正常。代码质量门禁全部通过。
+</body></html>
