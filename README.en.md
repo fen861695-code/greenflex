@@ -68,12 +68,20 @@ Four modes:
 - **Quality**: Highest quality first, for critical tasks
 - **Manual**: Pick the model yourself
 
-### 2. AI Chat
+### 2. AI Concierge
 
-Built-in chat interface with:
-- Multi-turn conversations
-- Automatic model recommendation per message
-- Per-message display of model, price, energy, and carbon
+The integrated GreenConcierge agent offers two modes:
+
+**Concierge mode** (default): describe tasks in natural language; the agent recommends models
+- Auto-detects task type (classification, extraction, summarization, generation, analysis, code, translation)
+- Returns recommended model with price, energy, carbon, latency, and alternatives
+- Queries grid carbon signals, model list, order status
+- With a cloud API key (DeepSeek recommended), uses LLM function calling for full conversation and task execution
+- Without a key, runs in rule-based mode — task analysis and recommendations still work
+
+**Direct chat mode**: pick a model and chat directly
+- Multi-turn context
+- Per-message model, price, energy, and carbon display
 - Real model responses when cloud API keys are configured; simulated output otherwise
 
 ### 3. Model Preview

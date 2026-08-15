@@ -10,8 +10,11 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from greenflex.config import get_settings
 from greenflex.container import build_container
+from greenflex.concierge.router import router as concierge_router
+from greenflex.db import engine
 from greenflex.domain import DomainError
 from greenflex.logging import configure_logging
+from greenflex.models import Base
 from greenflex.routes import router
 from greenflex.security import LocalSecurityMiddleware
 
@@ -21,6 +24,9 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings.artifact_dir.mkdir(parents=True, exist_ok=True)
+    # Auto-create tables on startup (SQLite; for production use migrations)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
 
 
@@ -38,6 +44,7 @@ def create_app() -> FastAPI:
         allowed_hosts=["127.0.0.1", "localhost", "testserver"],
     )
     app.include_router(router)
+    app.include_router(concierge_router)
 
     @app.exception_handler(DomainError)
     async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:

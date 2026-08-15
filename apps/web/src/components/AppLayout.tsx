@@ -6,8 +6,8 @@ import {
   Gauge,
   Leaf,
   Menu,
-  MessageSquare,
   Settings,
+  Sparkles,
   X,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -15,7 +15,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 
 const navItems = [
   { to: '/', label: '工作台', icon: Gauge, end: true },
-  { to: '/chat', label: 'AI 对话', icon: MessageSquare, end: false },
+  { to: '/chat', label: '智能管家', icon: Sparkles, end: false },
   { to: '/preview', label: '模型试跑', icon: Activity, end: false },
   { to: '/carbon', label: '碳信号', icon: CloudSun, end: false },
   { to: '/orders/new', label: '批量下单', icon: FilePlus2, end: false },

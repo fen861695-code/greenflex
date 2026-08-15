@@ -243,23 +243,27 @@ class RuleBasedAgentAdvisor:
 
 
 class GreenConciergeAgentAdvisor:
-    """GreenConcierge agent advisor (future placeholder).
+    """GreenConcierge agent advisor — integrated in-process.
 
-    When implemented, this will call the GreenConcierge API at
-    ``{concierge_api_url}/agent/analyze`` to get LLM-driven task analysis
-    and model recommendations.
+    The concierge is now embedded in GreenFlex (see ``greenflex.concierge``).
+    For the recommendation pipeline, this advisor delegates to the
+    :class:`TaskClassifier` for deterministic task analysis. When a cloud
+    LLM is configured, the concierge chat interface provides richer
+    LLM-driven analysis via function calling.
     """
 
     def __init__(
         self,
         *,
-        concierge_api_url: str,
+        concierge_api_url: str = "",
         api_key: str | None = None,
         timeout_seconds: float = 30.0,
+        classifier: TaskClassifier | None = None,
     ) -> None:
         self._api_url = concierge_api_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout_seconds
+        self._classifier = classifier or TaskClassifier()
 
     def analyze_task(
         self,
@@ -270,10 +274,25 @@ class GreenConciergeAgentAdvisor:
         quality_requirement: QualityRequirement = QualityRequirement.STANDARD,
         context: dict[str, Any] | None = None,
     ) -> AgentTaskAnalysis:
-        """Call POST {api_url}/agent/analyze for task analysis."""
-        raise NotImplementedError(
-            "GreenConcierge agent integration is not yet implemented. "
-            f"Future: POST {self._api_url}/agent/analyze"
+        """Analyze task using the integrated classifier."""
+        cls = self._classifier.classify(
+            prompt,
+            item_count=item_count,
+            output_length=output_length,  # type: ignore[arg-type]
+            quality_requirement=quality_requirement,
+        )
+        return AgentTaskAnalysis(
+            task_type=cls.task_type.value,
+            complexity=cls.complexity.value,
+            estimated_input_tokens=cls.estimated_input_tokens,
+            estimated_output_tokens=cls.estimated_output_tokens,
+            recommended_tier=cls.recommended_tier.value,
+            confidence_bps=cls.confidence_bps,
+            reasoning=f"GreenConcierge integrated classifier v{cls.classifier_version}",
+            suggested_models=[],
+            risk_notes=[],
+            agent_provider="green-concierge",
+            agent_version="1.0.0",
         )
 
     def recommend_model(
@@ -285,10 +304,14 @@ class GreenConciergeAgentAdvisor:
         deadline: datetime | None = None,
         context: dict[str, Any] | None = None,
     ) -> AgentModelRecommendation:
-        """Call POST {api_url}/agent/recommend for model recommendation."""
-        raise NotImplementedError(
-            "GreenConcierge agent integration is not yet implemented. "
-            f"Future: POST {self._api_url}/agent/recommend"
+        """Recommend model using rule-based selection (same as RuleBasedAgentAdvisor)."""
+        rule_advisor = RuleBasedAgentAdvisor(classifier=self._classifier)
+        return rule_advisor.recommend_model(
+            analysis,
+            available_models,
+            budget_micro_rmb=budget_micro_rmb,
+            deadline=deadline,
+            context=context,
         )
 
 
