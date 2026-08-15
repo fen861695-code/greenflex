@@ -3,6 +3,7 @@ import { CheckCircle2, Copy, FileCheck2, ShieldCheck } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { api, apiMessage } from '../api/client'
+import { C2PABadge } from '../components/C2PABadge'
 import { ErrorState, LoadingState } from '../components/PageState'
 import { PageHeader } from '../components/PageHeader'
 import { ProvenanceBadge } from '../components/ProvenanceBadge'
@@ -72,6 +73,12 @@ export function PassportPage() {
         <div><span>Passport SHA-256</span><code>{passport.data.payload_sha256}</code></div>
         <button className="icon-button" title="复制校验值" onClick={() => void navigator.clipboard.writeText(passport.data.payload_sha256)}><Copy aria-hidden="true" /></button>
       </section>
+
+      <section className="c2pa-section">
+        <div className="section-heading"><h2>C2PA 内容凭证</h2><ProvenanceBadge value="simulated" detail="C2PA为仿真实现" /></div>
+        <C2PABadge passportId={passport.data.passport_id} />
+      </section>
+
       <Link className="button secondary" to={`/orders/${passport.data.order_id}`}>返回订单</Link>
     </main>
   )

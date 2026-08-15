@@ -55,6 +55,30 @@ class Settings(BaseSettings):
     # Admin token for settings write API (auto-generated if not set)
     admin_token: str | None = None
 
+    # --- Real-time carbon intensity ---
+    electricity_maps_api_key: str | None = None
+    carbon_intensity_region: str = "CN-HN"  # Hunan/Changsha default
+    electricity_maps_zone: str = "CN-CS"  # China Central-South grid zone
+    carbon_intensity_cache_ttl_minutes: int = Field(default=15, ge=5, le=1440)
+    carbon_provider_chain: str = "electricity_maps,dynlca,fallback"
+
+    # --- Energy estimation ---
+    local_gpu_model: str = "rtx-3060-laptop"
+    energy_estimator_enabled: bool = True
+    auto_calibrate_gpu: bool = True
+
+    # RL Router (v2)
+    rl_router_enabled: bool = True
+    rl_router_mode: str = "shadow"  # disabled, shadow, advisory, autonomous
+    rl_router_policy_path: str = "data/rl_policy.json"
+
+    # C2PA (v2)
+    c2pa_secret_key: str = "greenflex-local"
+    c2pa_enabled: bool = True
+
+    # AI Act Compliance (v2)
+    ai_act_compliance_enabled: bool = True
+
     @property
     def sync_database_url(self) -> str:
         return self.database_url.replace("sqlite+aiosqlite", "sqlite")

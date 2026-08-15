@@ -5,7 +5,8 @@ import contextlib
 import shutil
 import statistics
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
 from typing import Any
 
 import httpx
