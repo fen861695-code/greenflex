@@ -16,6 +16,7 @@ RATE_LIMITS = {
     "/api/v1/quotes": 30,
     "/api/v1/quotes/upload": 10,
     "/api/v1/chat": 30,
+    "/api/v1/concierge/chat": 20,
     "/api/v1/settings/cloud-api": 10,
 }
 BODY_LIMITS = {
@@ -23,6 +24,7 @@ BODY_LIMITS = {
     "/api/v1/quotes": 6 * 1024 * 1024,
     "/api/v1/quotes/upload": 6 * 1024 * 1024,
     "/api/v1/chat": 256 * 1024,
+    "/api/v1/concierge/chat": 32 * 1024,
     "/api/v1/settings/cloud-api": 16 * 1024,
 }
 

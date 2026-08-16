@@ -36,6 +36,12 @@ def get_agent() -> ConciergeAgent:
     return _agent
 
 
+def _sync_runtime_settings(agent: ConciergeAgent, container: ServiceContainer) -> None:
+    """Ensure the agent's LLM reads keys from the current runtime settings."""
+    if container.runtime_settings is not None:
+        agent.llm.update_runtime_settings(container.runtime_settings)
+
+
 def _get_container(request: Request) -> ServiceContainer:
     return cast(ServiceContainer, request.app.state.container)
 
@@ -53,6 +59,7 @@ async def concierge_chat(
     agent: AgentDep,
 ) -> ConciergeChatResponse:
     """Send a message to the GreenConcierge agent."""
+    _sync_runtime_settings(agent, container)
     reply, mode, tools_used = await agent.chat(
         payload.session_id,
         payload.message,
@@ -77,8 +84,11 @@ async def concierge_reset(
 
 
 @router.get("/health", response_model=ConciergeHealthResponse)
-async def concierge_health(agent: AgentDep) -> ConciergeHealthResponse:
+async def concierge_health(
+    agent: AgentDep, container: ContainerDep
+) -> ConciergeHealthResponse:
     """Check concierge agent status."""
+    _sync_runtime_settings(agent, container)
     return ConciergeHealthResponse(
         status="ok" if agent.llm.available else "degraded",
         llm_available=agent.llm.available,
