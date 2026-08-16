@@ -1,0 +1,50 @@
+{
+  "metadata": {
+    "version": "global-grid-carbon-v1",
+    "generated_at": "2026-08-15",
+    "unit": "gCO2e_per_kwh",
+    "sources": [
+      "https://ember-energy.org/data/yearly-electricity-data/",
+      "https://ember-energy.org/latest-insights/global-electricity-review-2024/supporting-materials/",
+      "IEA Electricity Information 2025"
+    ],
+    "notes": [
+      "2023 annual average carbon intensity from Ember Global Electricity Review",
+      "Values are life-cycle emissions including upstream fuel extraction",
+      "Renewable share includes wind, solar, hydro, biomass, geothermal",
+      "Nuclear counted separately as low-carbon but not renewable"
+    ]
+  },
+  "regions": [
+    {"code": "IS", "name_zh": "冰岛", "name_en": "Iceland", "carbon_g_per_kwh": 34, "renewable_share_bps": 10000, "solar_weight": 0, "wind_weight": 0, "note": "近100%地热+水电"},
+    {"code": "NO", "name_zh": "挪威", "name_en": "Norway", "carbon_g_per_kwh": 18, "renewable_share_bps": 9800, "solar_weight": 0, "wind_weight": 10, "note": "98%水电"},
+    {"code": "SE", "name_zh": "瑞典", "name_en": "Sweden", "carbon_g_per_kwh": 35, "renewable_share_bps": 6500, "solar_weight": 2, "wind_weight": 20, "note": "水电+核电+风电"},
+    {"code": "FR", "name_zh": "法国", "name_en": "France", "carbon_g_per_kwh": 58, "renewable_share_bps": 2500, "solar_weight": 5, "wind_weight": 8, "note": "70%核电"},
+    {"code": "BR", "name_zh": "巴西", "name_en": "Brazil", "carbon_g_per_kwh": 85, "renewable_share_bps": 8000, "solar_weight": 5, "wind_weight": 10, "note": "以水电为主"},
+    {"code": "CA", "name_zh": "加拿大", "name_en": "Canada", "carbon_g_per_kwh": 110, "renewable_share_bps": 6800, "solar_weight": 2, "wind_weight": 5, "note": "水电为主"},
+    {"code": "CH", "name_zh": "瑞士", "name_en": "Switzerland", "carbon_g_per_kwh": 120, "renewable_share_bps": 6000, "solar_weight": 8, "wind_weight": 2, "note": "水电+核电"},
+    {"code": "AT", "name_zh": "奥地利", "name_en": "Austria", "carbon_g_per_kwh": 150, "renewable_share_bps": 7500, "solar_weight": 10, "wind_weight": 10, "note": "水电+风电"},
+    {"code": "PT", "name_zh": "葡萄牙", "name_en": "Portugal", "carbon_g_per_kwh": 180, "renewable_share_bps": 6000, "solar_weight": 15, "wind_weight": 25, "note": "风电+水电"},
+    {"code": "CN-Southwest", "name_zh": "中国西南", "name_en": "China Southwest", "carbon_g_per_kwh": 187, "renewable_share_bps": 7500, "solar_weight": 5, "wind_weight": 5, "note": "水电为主（四川/云南）"},
+    {"code": "DK", "name_zh": "丹麦", "name_en": "Denmark", "carbon_g_per_kwh": 200, "renewable_share_bps": 6500, "solar_weight": 5, "wind_weight": 50, "note": "全球风电占比最高"},
+    {"code": "ES", "name_zh": "西班牙", "name_en": "Spain", "carbon_g_per_kwh": 220, "renewable_share_bps": 5000, "solar_weight": 20, "wind_weight": 25, "note": "风电+光伏"},
+    {"code": "GB", "name_zh": "英国", "name_en": "United Kingdom", "carbon_g_per_kwh": 220, "renewable_share_bps": 4000, "solar_weight": 5, "wind_weight": 28, "note": "海上风电快速增长"},
+    {"code": "IT", "name_zh": "意大利", "name_en": "Italy", "carbon_g_per_kwh": 250, "renewable_share_bps": 4000, "solar_weight": 15, "wind_weight": 8, "note": "光伏+天然气"},
+    {"code": "CN-Northwest", "name_zh": "中国西北", "name_en": "China Northwest", "carbon_g_per_kwh": 432, "renewable_share_bps": 4800, "solar_weight": 15, "wind_weight": 25, "note": "风光资源丰富"},
+    {"code": "CN-Central", "name_zh": "中国华中", "name_en": "China Central", "carbon_g_per_kwh": 493, "renewable_share_bps": 3500, "solar_weight": 8, "wind_weight": 5, "note": "水电+煤电"},
+    {"code": "CN-East", "name_zh": "中国华东", "name_en": "China East", "carbon_g_per_kwh": 550, "renewable_share_bps": 3000, "solar_weight": 12, "wind_weight": 8, "note": "经济最发达区域"},
+    {"code": "CN-South", "name_zh": "中国南方", "name_en": "China South", "carbon_g_per_kwh": 523, "renewable_share_bps": 4200, "solar_weight": 7, "wind_weight": 8, "note": "核电+水电"},
+    {"code": "CN-Northeast", "name_zh": "中国东北", "name_en": "China Northeast", "carbon_g_per_kwh": 526, "renewable_share_bps": 3300, "solar_weight": 8, "wind_weight": 20, "note": "风电+煤电"},
+    {"code": "CN-North", "name_zh": "中国华北", "name_en": "China North", "carbon_g_per_kwh": 623, "renewable_share_bps": 2500, "solar_weight": 10, "wind_weight": 15, "note": "煤电为主"},
+    {"code": "DE", "name_zh": "德国", "name_en": "Germany", "carbon_g_per_kwh": 380, "renewable_share_bps": 5200, "solar_weight": 12, "wind_weight": 20, "note": "退煤过渡期"},
+    {"code": "US", "name_zh": "美国", "name_en": "United States", "carbon_g_per_kwh": 385, "renewable_share_bps": 2200, "solar_weight": 5, "wind_weight": 10, "note": "天然气+煤电"},
+    {"code": "JP", "name_zh": "日本", "name_en": "Japan", "carbon_g_per_kwh": 450, "renewable_share_bps": 2000, "solar_weight": 10, "wind_weight": 2, "note": "天然气+煤电"},
+    {"code": "KR", "name_zh": "韩国", "name_en": "South Korea", "carbon_g_per_kwh": 420, "renewable_share_bps": 1000, "solar_weight": 5, "wind_weight": 2, "note": "煤电+核电+天然气"},
+    {"code": "AU", "name_zh": "澳大利亚", "name_en": "Australia", "carbon_g_per_kwh": 650, "renewable_share_bps": 3000, "solar_weight": 15, "wind_weight": 10, "note": "煤电为主，屋顶光伏高"},
+    {"code": "IN", "name_zh": "印度", "name_en": "India", "carbon_g_per_kwh": 720, "renewable_share_bps": 2000, "solar_weight": 8, "wind_weight": 5, "note": "煤电占70%以上"},
+    {"code": "ZA", "name_zh": "南非", "name_en": "South Africa", "carbon_g_per_kwh": 780, "renewable_share_bps": 800, "solar_weight": 3, "wind_weight": 3, "note": "全球最高，煤电占90%"},
+    {"code": "CN-National", "name_zh": "中国全国", "name_en": "China National", "carbon_g_per_kwh": 537, "renewable_share_bps": 3000, "solar_weight": 10, "wind_weight": 10, "note": "全国平均"},
+    {"code": "EU", "name_zh": "欧盟", "name_en": "European Union", "carbon_g_per_kwh": 250, "renewable_share_bps": 4500, "solar_weight": 10, "wind_weight": 15, "note": "EU27平均"},
+    {"code": "WORLD", "name_zh": "全球", "name_en": "World", "carbon_g_per_kwh": 475, "renewable_share_bps": 3000, "solar_weight": 8, "wind_weight": 8, "note": "全球平均"}
+  ]
+}

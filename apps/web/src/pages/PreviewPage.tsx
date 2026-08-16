@@ -25,7 +25,7 @@ export function PreviewPage() {
   })
   useEffect(() => {
     if (selected.length === 0 && models.data) {
-      setSelected(models.data.filter((model) => model.available).map((model) => model.id))
+      setSelected(models.data.filter((model) => model.enabled && !model.is_task_classifier).slice(0, 3).map((model) => model.id))
     }
   }, [models.data, selected.length])
   const { register, handleSubmit, watch } = useForm<PreviewForm>({
@@ -59,7 +59,7 @@ export function PreviewPage() {
 
   return (
     <main className="page">
-      <PageHeader eyebrow="真实本地推理" title="模型试跑对比" actions={<ProvenanceBadge value="measured" detail="输出、Token、延迟和可用 GPU 遥测来自本机" />} />
+      <PageHeader eyebrow="模型对比" title="模型试跑对比" actions={<ProvenanceBadge value="simulated" detail="模拟推理模式，配置云 API Key 后可真实调用" />} />
       <form className="preview-layout" onSubmit={handleSubmit((values) => previewMutation.mutate(values))}>
         <section className="preview-input">
           <label className="field"><span>试跑文本</span><textarea rows={10} {...register('prompt', { required: true, maxLength: 8192 })} placeholder="输入同一段文本，按顺序对比所选模型" /><small>{watch('prompt').length.toLocaleString()} / 8,192</small></label>
@@ -67,12 +67,12 @@ export function PreviewPage() {
         </section>
         <aside className="preview-models">
           <div className="section-heading compact"><div><p className="eyebrow">串行执行</p><h2>选择模型</h2></div><Zap aria-hidden="true" /></div>
-          {models.isLoading && <LoadingState label="检测本地模型" />}
-          {models.data?.map((model) => (
-            <label className={model.available ? 'model-choice' : 'model-choice disabled'} key={model.id}>
-              <input type="checkbox" checked={selected.includes(model.id)} onChange={() => toggleModel(model.id)} disabled={!model.available} />
+          {models.isLoading && <LoadingState label="加载模型目录" />}
+          {models.data?.filter((m) => m.enabled && !m.is_task_classifier).map((model) => (
+            <label className="model-choice" key={model.id}>
+              <input type="checkbox" checked={selected.includes(model.id)} onChange={() => toggleModel(model.id)} />
               <span className="custom-check"><Check aria-hidden="true" /></span>
-              <span><strong>{model.display_name}</strong><small>{model.parameter_b} · {model.available ? model.availability_detail : '未安装'}</small></span>
+              <span><strong>{model.display_name}</strong><small>{model.parameter_b} · {model.availability_detail}{model.recommended_batch_size && model.recommended_batch_size > 1 ? ` · 推荐批量 ${String(model.recommended_batch_size)}` : ''}</small></span>
             </label>
           ))}
           <label className="field compact"><span>最大输出 Token</span><input type="number" min="16" max="512" step="16" {...register('maxOutputTokens', { valueAsNumber: true })} /></label>
@@ -80,7 +80,6 @@ export function PreviewPage() {
         </aside>
       </form>
       {models.isError && <ErrorState message="无法读取模型目录。" />}
-      {models.data?.every((model) => !model.available) && <div className="notice warning">未检测到可用模型。订单与仿真报价仍可使用，真实试跑需启动 Ollama 并安装 Qwen2.5。</div>}
       {runError && <ErrorState message={runError} />}
       {previewMutation.data && previewMutation.data.length > 0 && (
         <section className="results-section">
@@ -95,6 +94,9 @@ export function PreviewPage() {
                   <div><dt>输出 Token</dt><dd>{result.output_tokens}</dd></div>
                   <div><dt>延迟</dt><dd>{formatNumber(result.latency_ms, 1)} ms</dd></div>
                   <div><dt>GPU 总能耗</dt><dd>{formatNumber(result.gross_gpu_energy_wh, 6)} Wh</dd></div>
+                  {result.joules_per_output_token && (
+                    <div><dt>能效 J/tok</dt><dd>{result.joules_per_output_token} J</dd></div>
+                  )}
                 </dl>
               </article>
             ))}

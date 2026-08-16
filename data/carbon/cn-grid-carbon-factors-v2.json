@@ -1,0 +1,155 @@
+{
+  "metadata": {
+    "version": "cn-grid-carbon-v2",
+    "generated_at": "2026-08-06",
+    "unit": "gCO2e_per_kwh",
+    "sources": [
+      "https://www.mee.gov.cn/ywdt/zbft/202601/t20260105_1139911.shtml",
+      "国家统计局2025年电力碳排放因子公告",
+      "中国电力企业联合会2024年度电力行业碳减排报告"
+    ],
+    "notes": [
+      "2023 values are official MEE baseline factors for CDM/CCER",
+      "2025 values reflect continued decarbonization (more wind/solar)",
+      "Regional factors vary significantly by generation mix",
+      "Time-varying factors show hourly/daily variation due to solar/wind"
+    ]
+  },
+  "annual_baseline": {
+    "2023_official": {
+      "north_china": 622.8,
+      "northeast_china": 525.7,
+      "east_china": 550.0,
+      "central_china": 493.4,
+      "south_china": 523.1,
+      "northwest_china": 432.2,
+      "southwest_china": 186.5,
+      "national_average": 536.8,
+      "source": "生态环境部2023年度区域电网基准线排放因子"
+    },
+    "2025_estimated": {
+      "north_china": 590.0,
+      "northeast_china": 490.0,
+      "east_china": 561.7,
+      "central_china": 450.0,
+      "south_china": 480.0,
+      "northwest_china": 380.0,
+      "southwest_china": 150.0,
+      "national_average": 514.0,
+      "source": "国家统计局2025年公告，持续下降趋势"
+    },
+    "2026_q3_forecast": {
+      "east_china_daytime_solar": 280.0,
+      "east_china_night": 580.0,
+      "east_china_average": 498.0,
+      "northwest_windy": 200.0,
+      "note": "Q3 2026 forecast; solar midday significantly lower"
+    }
+  },
+  "time_varying_factors": {
+    "description": "Carbon intensity varies by hour due to renewable generation patterns",
+    "cn-east_summer": {
+      "solar_midday": {
+        "hours": [11, 12, 13, 14],
+        "g_per_kwh": 280,
+        "renewable_share_bps": 5000,
+        "note": "Peak solar PV generation; gas/coal displaced"
+      },
+      "midday_shoulder": {
+        "hours": [9, 10, 15, 16],
+        "g_per_kwh": 420,
+        "renewable_share_bps": 3500
+      },
+      "morning_ramp": {
+        "hours": [7, 8, 17, 18],
+        "g_per_kwh": 550,
+        "renewable_share_bps": 2000
+      },
+      "evening_peak": {
+        "hours": [19, 20, 21],
+        "g_per_kwh": 620,
+        "renewable_share_bps": 1500,
+        "note": "Solar gone; demand peak; coal-heavy"
+      },
+      "night_valley": {
+        "hours": [23, 0, 1, 2, 3, 4, 5, 6],
+        "g_per_kwh": 520,
+        "renewable_share_bps": 2500,
+        "note": "Baseload coal + wind; demand low"
+      }
+    }
+  },
+  "renewable_share_by_region": {
+    "northwest_china": {
+      "wind": 0.25,
+      "solar": 0.15,
+      "hydro": 0.08,
+      "total_non_fossil": 0.48,
+      "note": "Highest renewable penetration; sometimes curtailment"
+    },
+    "southwest_china": {
+      "hydro": 0.65,
+      "wind": 0.05,
+      "solar": 0.05,
+      "total_non_fossil": 0.75,
+      "note": "Hydro dominated; lowest carbon factor"
+    },
+    "east_china": {
+      "wind": 0.08,
+      "solar": 0.12,
+      "hydro": 0.05,
+      "nuclear": 0.10,
+      "total_non_fossil": 0.35,
+      "note": "Nuclear + growing offshore wind and distributed solar"
+    },
+    "north_china": {
+      "wind": 0.15,
+      "solar": 0.10,
+      "hydro": 0.02,
+      "total_non_fossil": 0.27
+    },
+    "northeast_china": {
+      "wind": 0.20,
+      "solar": 0.08,
+      "hydro": 0.05,
+      "total_non_fossil": 0.33
+    },
+    "south_china": {
+      "hydro": 0.15,
+      "wind": 0.08,
+      "solar": 0.07,
+      "nuclear": 0.12,
+      "total_non_fossil": 0.42
+    },
+    "central_china": {
+      "hydro": 0.20,
+      "wind": 0.05,
+      "solar": 0.08,
+      "total_non_fossil": 0.33
+    }
+  },
+  "pue_reference": {
+    "local_workstation": 1.0,
+    "on_premise_server": 1.2,
+    "enterprise_datacenter": 1.4,
+    "hyperscale_datacenter": 1.15,
+    "edge_colocation": 1.5,
+    "note": "Power Usage Effectiveness multipliers for facility energy"
+  },
+  "international_comparison": {
+    "norway": 18,
+    "iceland": 25,
+    "sweden": 35,
+    "france": 58,
+    "brazil": 85,
+    "united_kingdom": 220,
+    "germany": 380,
+    "united_states": 385,
+    "china_national": 514,
+    "india": 720,
+    "australia": 650,
+    "south_africa": 780,
+    "unit": "gCO2e/kWh",
+    "source": "IEA Electricity Information 2025, Ember Climate 2026"
+  }
+}

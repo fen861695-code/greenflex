@@ -25,6 +25,8 @@ from greenflex.domain import (
     ModelTier,
     OrderStatus,
     Provenance,
+    QualityRequirement,
+    TaskType,
     utc_now,
 )
 from greenflex.models import (
@@ -35,10 +37,19 @@ from greenflex.models import (
     OrderRecord,
     PassportRecord,
     QuoteRecord,
+    RecommendationDecisionRecord,
 )
 from greenflex.ports import GenerationRequest
+from greenflex.recommendation import (
+    POLICY_VERSION,
+    PROFILE_VERSION,
+    GreenRouterRuleV1,
+    hash_recommendation_request,
+)
 from greenflex.schemas import (
     BatchItemInput,
+    ChatRequest,
+    ChatResponse,
     ModelCatalogItem,
     OrderItemView,
     OrderView,
@@ -47,10 +58,15 @@ from greenflex.schemas import (
     PreviewResponse,
     QuoteOption,
     QuoteRequest,
+    RecommendationAlternative,
+    RecommendationRequest,
+    RecommendationResponse,
+    TaskUnderstandingResponse,
 )
 from greenflex.telemetry import TelemetryCapture
 from greenflex.units import (
     basis_points_to_percent,
+    joules_per_output_token,
     micro_to_decimal_string,
     micro_wh_to_carbon_micro_g,
 )
@@ -138,7 +154,8 @@ async def list_models(
     container: ServiceContainer,
 ) -> list[ModelCatalogItem]:
     available = await container.inference.available_models()
-    models = (await session.scalars(select(ModelRecord).where(ModelRecord.enabled.is_(True)))).all()
+    # Return all models (both local enabled and cloud reference models)
+    models = (await session.scalars(select(ModelRecord))).all()
     catalog_changed = False
     for model in models:
         digest = available.get(model.runtime_name)
@@ -147,30 +164,70 @@ async def list_models(
             catalog_changed = True
     if catalog_changed:
         await session.commit()
-    return [
-        ModelCatalogItem(
-            id=model.id,
-            display_name=model.display_name,
-            runtime_name=model.runtime_name,
-            tier=ModelTier(model.tier),
-            parameter_b=model.parameter_b,
-            context_limit=model.context_limit,
-            recommended_for=json.loads(model.recommended_for_json),
-            input_rate_rmb_per_million=micro_to_decimal_string(
-                model.input_rate_micro_rmb_per_million
-            ),
-            output_rate_rmb_per_million=micro_to_decimal_string(
-                model.output_rate_micro_rmb_per_million
-            ),
-            available=model.runtime_name in available,
-            availability_detail=(
-                f"已安装 · {available[model.runtime_name][:19]}"
-                if model.runtime_name in available
-                else "未安装或运行时离线"
-            ),
+
+    # Baseline carbon intensity for catalog display (East China grid average)
+    baseline_carbon_g_per_kwh = 550
+
+    result: list[ModelCatalogItem] = []
+    for model in models:
+        is_cloud = model.runtime_name.startswith("cloud:")
+        is_installed = model.runtime_name in available and model.enabled
+
+        # Energy: micro-Wh per 1k output tokens -> Wh string
+        energy_wh = micro_to_decimal_string(model.estimated_energy_micro_wh_per_1k_output, places=4)
+
+        # Carbon: micro-Wh * g/kWh / 1000 -> micro-g -> g string
+        carbon_micro_g = micro_wh_to_carbon_micro_g(
+            model.estimated_energy_micro_wh_per_1k_output,
+            baseline_carbon_g_per_kwh,
         )
-        for model in models
-    ]
+        carbon_g = micro_to_decimal_string(carbon_micro_g, places=4)
+
+        # Determine provenance
+        if is_cloud:
+            energy_provenance = "estimated (datacenter H100/H200, PUE 1.2)"
+        elif model.estimated_energy_micro_wh_per_1k_output <= 200_000:
+            energy_provenance = "measured (consumer GPU)"
+        else:
+            energy_provenance = "interpolated"
+
+        result.append(
+            ModelCatalogItem(
+                id=model.id,
+                display_name=model.display_name,
+                runtime_name=model.runtime_name,
+                tier=ModelTier(model.tier),
+                parameter_b=model.parameter_b,
+                context_limit=model.context_limit,
+                recommended_for=json.loads(model.recommended_for_json),
+                input_rate_rmb_per_million=micro_to_decimal_string(
+                    model.input_rate_micro_rmb_per_million
+                ),
+                output_rate_rmb_per_million=micro_to_decimal_string(
+                    model.output_rate_micro_rmb_per_million
+                ),
+                enabled=model.enabled,
+                is_task_classifier=model.is_task_classifier,
+                official_data_source=model.official_data_source,
+                available=is_installed,
+                availability_detail=(
+                    f"已安装 · {available[model.runtime_name][:19]}"
+                    if is_installed
+                    else (
+                        "云端模型（未配置密钥，将模拟运行）"
+                        if is_cloud
+                        else "模拟模式（未检测到本地推理运行时）"
+                    )
+                ),
+                estimated_tokens_per_second=model.estimated_tokens_per_second,
+                energy_wh_per_1k_output=energy_wh,
+                carbon_g_per_1k_output=carbon_g,
+                is_cloud_model=is_cloud,
+                energy_provenance=energy_provenance,
+                recommended_batch_size=model.recommended_batch_size,
+            )
+        )
+    return result
 
 
 async def preview(
@@ -181,9 +238,6 @@ async def preview(
     model = await session.get(ModelRecord, request.model_id)
     if model is None or not model.enabled:
         raise DomainError("model_not_found", "指定模型不存在或已停用。", 404)
-    available = await container.inference.available_models()
-    if model.runtime_name not in available:
-        raise DomainError("inference_unavailable", "所选本地模型尚未安装或 Ollama 未运行。", 503)
 
     settings = get_settings()
     capture = TelemetryCapture(
@@ -201,6 +255,11 @@ async def preview(
         )
     measurement = capture.measurement()
     measured = measurement.gross_energy_micro_wh is not None
+    jpt = (
+        joules_per_output_token(measurement.gross_energy_micro_wh, result.output_tokens)
+        if measurement.gross_energy_micro_wh is not None
+        else None
+    )
     return PreviewResponse(
         model_id=model.id,
         output=result.output,
@@ -217,8 +276,10 @@ async def preview(
             if measurement.incremental_energy_micro_wh is not None
             else None
         ),
+        joules_per_output_token=jpt,
         telemetry_provenance=Provenance.MEASURED if measured else Provenance.ESTIMATED,
         telemetry_source=measurement.source,
+        inference_source=getattr(result, "source", container.inference.source),
     )
 
 
@@ -447,6 +508,14 @@ async def get_order(session: AsyncSession, order_id: str) -> OrderRecord:
 def order_view(order: OrderRecord, *, include_items: bool = False) -> OrderView:
     succeeded = sum(item.status == ItemStatus.SUCCEEDED.value for item in order.items)
     failed = sum(item.status == ItemStatus.FAILED.value for item in order.items)
+    total_output_tokens = sum(
+        item.output_tokens or 0 for item in order.items if item.status == ItemStatus.SUCCEEDED.value
+    )
+    order_jpt = (
+        joules_per_output_token(order.gross_gpu_energy_micro_wh, total_output_tokens)
+        if order.gross_gpu_energy_micro_wh is not None and total_output_tokens > 0
+        else None
+    )
     return OrderView(
         id=order.id,
         quote_id=order.quote_id,
@@ -480,6 +549,7 @@ def order_view(order: OrderRecord, *, include_items: bool = False) -> OrderView:
             if order.location_carbon_micro_g is not None
             else None
         ),
+        joules_per_output_token=order_jpt,
         content_purged=order.content_purged,
         created_at=_aware_utc(order.created_at),
         started_at=_aware_utc(order.started_at) if order.started_at is not None else None,
@@ -615,3 +685,304 @@ async def _delete_runtime_artifact(raw_path: str, artifact_dir: Path) -> None:
     )
     if candidate.is_relative_to(artifact_root):
         await asyncio.to_thread(candidate.unlink, missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Recommendation service
+# ---------------------------------------------------------------------------
+
+
+async def create_recommendation(
+    session: AsyncSession,
+    container: ServiceContainer,
+    request: RecommendationRequest,
+    *,
+    now: datetime | None = None,
+) -> RecommendationResponse:
+    created_at = _aware_utc(now or utc_now())
+
+    # Load enabled models
+    models = (await session.scalars(select(ModelRecord).where(ModelRecord.enabled.is_(True)))).all()
+    if not models:
+        raise DomainError("no_models_available", "没有可用的模型。", 503)
+
+    # ------------------------------------------------------------------
+    # Auto-understand the task from natural language
+    # When task_type is AUTO and prompt_preview is provided, run the
+    # TaskClassifier to infer task type, complexity, output length,
+    # and batch size — so users don't need to specify tokens manually.
+    # ------------------------------------------------------------------
+    task_understanding_resp: TaskUnderstandingResponse | None = None
+    understanding = None
+    effective_task_type = request.task_type
+    effective_input_tokens = request.estimated_input_tokens
+    effective_output_tokens = request.estimated_output_tokens
+    effective_quality_requirement = request.quality_requirement
+    effective_item_count = request.item_count
+
+    if (
+        request.task_type == TaskType.AUTO
+        and request.prompt_preview
+        and len(request.prompt_preview.strip()) >= 1
+        and container.task_classifier is not None
+    ):
+        understanding = container.task_classifier.understand(
+            request.prompt_preview,
+            item_count=request.item_count,
+            quality_requirement=request.quality_requirement,
+        )
+        effective_task_type = understanding.task_type
+        effective_input_tokens = max(effective_input_tokens, understanding.estimated_input_tokens)
+        effective_output_tokens = max(
+            effective_output_tokens, understanding.estimated_output_tokens
+        )
+        effective_item_count = max(effective_item_count, understanding.estimated_item_count)
+
+        # Bump quality requirement if natural-language hints suggest high quality
+        if (
+            understanding.inferred_quality == "high"
+            and effective_quality_requirement == QualityRequirement.STANDARD
+        ):
+            effective_quality_requirement = QualityRequirement.HIGH
+
+        task_understanding_resp = TaskUnderstandingResponse(
+            task_type=understanding.task_type.value,
+            task_type_label=understanding.task_type_label,
+            complexity=understanding.complexity.value,
+            complexity_label=understanding.complexity_label,
+            estimated_input_tokens=understanding.estimated_input_tokens,
+            estimated_output_tokens=understanding.estimated_output_tokens,
+            estimated_item_count=understanding.estimated_item_count,
+            output_length_hint=understanding.output_length_hint,
+            requires_json=understanding.requires_json,
+            recommended_tier=understanding.recommended_tier,
+            confidence_bps=understanding.confidence_bps,
+            confidence_label=understanding.confidence_label,
+            detected_intents=understanding.detected_intents,
+            reasoning=understanding.reasoning,
+        )
+
+    # Build recommendation input
+    from greenflex.ports import RecommendationInput
+
+    rec_input = RecommendationInput(
+        mode=request.mode,
+        task_type=effective_task_type,
+        estimated_input_tokens=effective_input_tokens,
+        estimated_output_tokens=effective_output_tokens,
+        item_count=effective_item_count,
+        quality_requirement=effective_quality_requirement,
+        budget_micro_rmb=request.budget_micro_rmb,
+        deadline=_aware_utc(request.deadline) if request.deadline else None,
+        execution_mode=request.execution_mode,
+        candidate_model_ids=(
+            frozenset(request.candidate_model_ids) if request.candidate_model_ids else None
+        ),
+        prompt_preview=request.prompt_preview,
+        classifier_tier_floor=(
+            understanding.recommended_tier if understanding is not None else None
+        ),
+    )
+
+    # Get current energy signal for carbon/price estimates
+    signal = container.signals.signal_at(created_at)
+
+    # Create a configured policy instance with current signal
+    policy = GreenRouterRuleV1(
+        carbon_g_per_kwh=signal.carbon_g_per_kwh,
+        renewable_share_bps=signal.renewable_share_bps,
+        price_micro_rmb_per_kwh=signal.price_micro_rmb_per_kwh,
+        queue_depth=0,  # TODO: count queued orders
+        shadow_mode=container.recommendation._shadow_mode,
+    )
+
+    # Run recommendation
+    result = policy.recommend(
+        request=rec_input,
+        available_models=models,
+        now=created_at,
+    )
+
+    # Build response
+    recommended_model = next(m for m in models if m.id == result.recommended_model_id)
+
+    # Build alternatives with diffs
+    alternatives: list[RecommendationAlternative] = []
+    for alt in result.alternatives:
+        alt_model = next(m for m in models if m.id == alt.model_id)
+        price_diff_pct = (
+            (alt.estimated_price_micro_rmb - result.estimated_price_micro_rmb)
+            / max(1, result.estimated_price_micro_rmb)
+            * 100
+        )
+        energy_diff_pct = (
+            (alt.estimated_energy_micro_wh - result.estimated_energy_micro_wh)
+            / max(1, result.estimated_energy_micro_wh)
+            * 100
+        )
+        alternatives.append(
+            RecommendationAlternative(
+                model_id=alt.model_id,
+                model_name=alt_model.display_name,
+                tier=ModelTier(alt.tier),
+                quality_risk=alt.quality_risk,
+                estimated_price_rmb=micro_to_decimal_string(alt.estimated_price_micro_rmb),
+                estimated_energy_wh=micro_to_decimal_string(alt.estimated_energy_micro_wh),
+                estimated_carbon_g=micro_to_decimal_string(alt.estimated_carbon_micro_g),
+                estimated_execution_seconds=alt.estimated_execution_seconds,
+                estimated_wait_seconds=alt.estimated_wait_seconds,
+                price_diff_pct=f"{price_diff_pct:+.1f}",
+                energy_diff_pct=f"{energy_diff_pct:+.1f}",
+                reason_codes=list(alt.reason_codes),
+            )
+        )
+
+    # Confidence label
+    if result.confidence_bps >= 7000:
+        confidence_label = "高"
+    elif result.confidence_bps >= 4000:
+        confidence_label = "中"
+    else:
+        confidence_label = "低"
+
+    # Audit record (no prompts stored)
+    request_hash = hash_recommendation_request(
+        task_type=effective_task_type.value,
+        mode=request.mode.value,
+        quality_requirement=request.quality_requirement.value,
+        estimated_input_tokens=effective_input_tokens,
+        estimated_output_tokens=effective_output_tokens,
+        item_count=effective_item_count,
+        has_budget=request.budget_rmb is not None,
+        has_deadline=request.deadline is not None,
+    )
+
+    audit = RecommendationDecisionRecord(
+        id=str(uuid4()),
+        tenant_id=DEFAULT_TENANT_ID,
+        request_hash=request_hash,
+        recommended_model_id=result.recommended_model_id,
+        recommended_tier=result.recommended_tier,
+        recommended_mode=request.mode.value,
+        confidence_bps=result.confidence_bps,
+        quality_risk_level=result.quality_risk.value,
+        estimated_energy_micro_wh=result.estimated_energy_micro_wh,
+        estimated_price_micro_rmb=result.estimated_price_micro_rmb,
+        estimated_carbon_micro_g=result.estimated_carbon_micro_g,
+        estimated_wait_seconds=result.estimated_wait_seconds,
+        estimated_execution_seconds=result.estimated_execution_seconds,
+        reason_codes_json=json.dumps(list(result.reason_codes), separators=(",", ":")),
+        alternatives_json=json.dumps(
+            [
+                {
+                    "model_id": a.model_id,
+                    "tier": a.tier,
+                    "price": a.estimated_price_micro_rmb,
+                    "energy": a.estimated_energy_micro_wh,
+                }
+                for a in result.alternatives
+            ],
+            separators=(",", ":"),
+        ),
+        policy_version=POLICY_VERSION,
+        profile_version=PROFILE_VERSION,
+        shadow_mode=result.shadow_mode,
+        created_at=created_at,
+    )
+    session.add(audit)
+    await session.commit()
+
+    return RecommendationResponse(
+        recommendation_id=audit.id,
+        recommended_model_id=result.recommended_model_id,
+        recommended_model_name=recommended_model.display_name,
+        recommended_tier=ModelTier(result.recommended_tier),
+        recommended_mode=request.mode,
+        recommended_execution_mode=result.recommended_execution_mode,
+        quality_risk=result.quality_risk,
+        confidence_bps=result.confidence_bps,
+        confidence_label=confidence_label,
+        estimated_price_rmb=micro_to_decimal_string(result.estimated_price_micro_rmb),
+        estimated_energy_wh=micro_to_decimal_string(result.estimated_energy_micro_wh),
+        estimated_carbon_g=micro_to_decimal_string(result.estimated_carbon_micro_g),
+        estimated_execution_seconds=result.estimated_execution_seconds,
+        estimated_wait_seconds=result.estimated_wait_seconds,
+        reason_codes=list(result.reason_codes),
+        reason_summary=result.reason_summary,
+        alternatives=alternatives,
+        task_understanding=task_understanding_resp,
+        policy_version=POLICY_VERSION,
+        profile_version=PROFILE_VERSION,
+        shadow_mode=result.shadow_mode,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chat (multi-turn conversation)
+# ---------------------------------------------------------------------------
+
+
+async def chat(
+    session: AsyncSession,
+    container: ServiceContainer,
+    request: ChatRequest,
+) -> ChatResponse:
+    """Process a multi-turn chat request and return the model's reply.
+
+    Routes through the hybrid inference provider: cloud APIs when keys are
+    configured, simulated output otherwise.
+    """
+    model = await session.get(ModelRecord, request.model_id)
+    if model is None:
+        raise DomainError("model_not_found", "指定模型不存在。", 404)
+
+    # Extract system prompt if present
+    system_prompt: str | None = None
+    conversation_messages: list[dict[str, str]] = []
+    for msg in request.messages:
+        if msg.role == "system":
+            system_prompt = msg.content
+        else:
+            conversation_messages.append({"role": msg.role, "content": msg.content})
+
+    # Use the last user message as the primary prompt
+    last_user = next(
+        (m["content"] for m in reversed(conversation_messages) if m["role"] == "user"),
+        "",
+    )
+
+    gen_request = GenerationRequest(
+        model_name=model.runtime_name,
+        prompt=last_user,
+        system_prompt=system_prompt,
+        max_output_tokens=request.max_output_tokens,
+        temperature=request.temperature,
+        messages=tuple(conversation_messages),
+    )
+
+    result = await container.inference.generate(gen_request)
+
+    # Estimate cost based on token counts and model rates
+    input_cost = model.input_rate_micro_rmb_per_million * result.prompt_tokens // 1_000_000
+    output_cost = model.output_rate_micro_rmb_per_million * result.output_tokens // 1_000_000
+    estimated_price = input_cost + output_cost
+
+    # Estimate energy (based on model's per-1k-output energy)
+    estimated_energy = model.estimated_energy_micro_wh_per_1k_output * result.output_tokens // 1000
+
+    # Estimate carbon based on current grid signal
+    signal = container.signals.signal_at(utc_now())
+    estimated_carbon = micro_wh_to_carbon_micro_g(estimated_energy, signal.carbon_g_per_kwh)
+
+    return ChatResponse(
+        model_id=model.id,
+        model_name=model.display_name,
+        reply=result.output,
+        prompt_tokens=result.prompt_tokens,
+        completion_tokens=result.output_tokens,
+        duration_ms=result.duration_us // 1000,
+        estimated_price_micro_rmb=estimated_price,
+        estimated_energy_micro_wh=estimated_energy,
+        estimated_carbon_micro_g=estimated_carbon,
+        inference_source=container.inference.source,
+    )

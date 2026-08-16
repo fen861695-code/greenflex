@@ -1,4 +1,5 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+UTC = timezone.utc
 
 import pytest
 
@@ -41,7 +42,7 @@ def test_flexible_slot_stays_before_deadline() -> None:
         deadline=deadline,
     )
     assert slot.end <= deadline
-    assert slot.signal.source_version == "synthetic-cn-east-v1"
+    assert slot.signal.source_version == "synthetic-cn-east-v2"
 
 
 def test_infeasible_deadline_is_rejected() -> None:

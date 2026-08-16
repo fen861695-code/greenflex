@@ -4,7 +4,8 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+UTC = timezone.utc
 from typing import Any
 from uuid import uuid4
 
@@ -116,63 +117,86 @@ class PersistentOrderWorker:
             if order is None or OrderStatus(order.status) is not OrderStatus.RUNNING:
                 return
 
+            pending = [
+                item
+                for item in order.items
+                if ItemStatus(item.status) not in {ItemStatus.SUCCEEDED, ItemStatus.FAILED}
+            ]
+            if not pending:
+                return
+
+            batch_size = max(1, order.model.recommended_batch_size or 1)
             capture = TelemetryCapture(
                 self._container.telemetry,
                 idle_seconds=self._settings.telemetry_idle_seconds,
             )
             async with capture:
-                for item in order.items:
-                    if ItemStatus(item.status) in {ItemStatus.SUCCEEDED, ItemStatus.FAILED}:
-                        continue
-                    await self._execute_item(session, order, item)
+                for start in range(0, len(pending), batch_size):
+                    batch = pending[start : start + batch_size]
+                    await self._execute_batch(session, order, batch)
             await self._finalize_order(session, order, capture.measurement())
 
-    async def _execute_item(
+    async def _execute_batch(
         self,
         session: AsyncSession,
         order: OrderRecord,
-        item: OrderItemRecord,
+        batch: list[OrderItemRecord],
     ) -> None:
-        if item.prompt is None:
-            item.status = ItemStatus.FAILED.value
-            item.error_code = "content_unavailable"
-            await self._renew_and_commit(session, order)
-            return
-
-        item.status = ItemStatus.RUNNING.value
-        item.error_code = None
+        # Mark batch items as RUNNING and commit once.
+        for item in batch:
+            if item.prompt is None:
+                item.status = ItemStatus.FAILED.value
+                item.error_code = "content_unavailable"
+            else:
+                item.status = ItemStatus.RUNNING.value
+                item.error_code = None
         await self._renew_and_commit(session, order)
+
+        # Run inference concurrently within the batch.
+        runnable = [item for item in batch if item.prompt is not None]
+        results = await asyncio.gather(
+            *(self._run_inference(order, item) for item in runnable),
+            return_exceptions=False,
+        )
+
+        # Write results sequentially and commit.
+        for item, result in zip(runnable, results, strict=True):
+            if result is None:
+                item.status = ItemStatus.FAILED.value
+                item.error_code = "inference_failed"
+            else:
+                item.status = ItemStatus.SUCCEEDED.value
+                item.output = result.output
+                item.prompt_tokens = result.prompt_tokens
+                item.output_tokens = result.output_tokens
+                item.duration_us = result.duration_us
+                item.error_code = None
+        await self._renew_and_commit(session, order)
+
+    async def _run_inference(
+        self,
+        order: OrderRecord,
+        item: OrderItemRecord,
+    ) -> GenerationResult | None:
         request = GenerationRequest(
             model_name=order.model.runtime_name,
-            prompt=item.prompt,
+            prompt=item.prompt or "",
             system_prompt=item.system_prompt,
             max_output_tokens=item.max_output_tokens,
         )
-
         result: GenerationResult | None = None
-        error_code = "inference_failed"
         for attempt in range(2):
             try:
                 result = await self._container.inference.generate(request)
                 break
-            except DomainError as exc:
-                error_code = exc.code
+            except DomainError:
+                if attempt == 0:
+                    await asyncio.sleep(0.2)
             except Exception:
-                error_code = "inference_failed"
-            if attempt == 0:
-                await asyncio.sleep(0.2)
-
-        if result is None:
-            item.status = ItemStatus.FAILED.value
-            item.error_code = error_code
-        else:
-            item.status = ItemStatus.SUCCEEDED.value
-            item.output = result.output
-            item.prompt_tokens = result.prompt_tokens
-            item.output_tokens = result.output_tokens
-            item.duration_us = result.duration_us
-            item.error_code = None
-        await self._renew_and_commit(session, order)
+                self._logger.debug("inference_attempt_failed", item_id=item.id, attempt=attempt)
+                if attempt == 0:
+                    await asyncio.sleep(0.2)
+        return result
 
     async def _renew_and_commit(self, session: AsyncSession, order: OrderRecord) -> None:
         now = _aware_utc(self._clock())

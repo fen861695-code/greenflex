@@ -79,6 +79,30 @@ const quote: QuoteOption = {
   expires_at: '2026-07-19T09:15:00Z',
 }
 
+const recommendation = {
+  recommendation_id: 'rec-001',
+  recommended_model_id: 'qwen2.5-1.5b-q4',
+  recommended_model_name: 'Qwen2.5 1.5B',
+  recommended_tier: 'balanced',
+  recommended_mode: 'smart',
+  recommended_execution_mode: 'immediate',
+  quality_risk: 'low',
+  confidence_bps: 8000,
+  confidence_label: '高',
+  estimated_price_rmb: '0.000100',
+  estimated_energy_wh: '0.001200',
+  estimated_carbon_g: '0.000600',
+  estimated_execution_seconds: 3,
+  estimated_wait_seconds: 0,
+  reason_codes: ['balanced_choice'],
+  reason_summary: '在质量与成本之间取得平衡',
+  alternatives: [],
+  policy_version: 'green-router-rule-v1',
+  profile_version: 'model-task-profile-v1',
+  provenance: 'estimated',
+  shadow_mode: true,
+}
+
 const order: OrderView = {
   id: 'order-001',
   quote_id: 'quote-001',
@@ -122,6 +146,7 @@ describe('GreenFlex user flows', () => {
   it('submits a manual workload and renders a simulated quote', async () => {
     installFetch((request) => {
       if (request.method === 'GET' && pathOf(request) === '/api/v1/models') return json(models)
+      if (request.method === 'POST' && pathOf(request) === '/api/v1/recommendations') return json(recommendation)
       if (request.method === 'POST' && pathOf(request) === '/api/v1/quotes') return json({ options: [quote] })
       if (request.method === 'POST' && pathOf(request) === '/api/v1/orders') return json(order)
       if (request.method === 'GET' && pathOf(request) === '/api/v1/orders/order-001') return json(order)
@@ -130,7 +155,9 @@ describe('GreenFlex user flows', () => {
     renderApp('/')
     expect(screen.getByRole('heading', { name: '创建绿色推理订单' })).toBeInTheDocument()
     fireEvent.change(screen.getByPlaceholderText('输入待处理文本'), { target: { value: 'synthetic-input' } })
-    fireEvent.click(screen.getByRole('button', { name: '获取仿真报价' }))
+    fireEvent.click(screen.getByRole('button', { name: '获取智能推荐' }))
+    // Accept the recommendation to proceed to quotes
+    fireEvent.click(await screen.findByRole('button', { name: '使用推荐模型' }))
     expect(await screen.findByRole('heading', { name: '选择执行方案' })).toBeInTheDocument()
     expect(screen.getByText('Qwen2.5 1.5B', { exact: false })).toBeInTheDocument()
     expect(screen.getAllByText('仿真').length).toBeGreaterThan(0)

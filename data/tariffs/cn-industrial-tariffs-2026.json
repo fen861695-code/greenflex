@@ -1,0 +1,162 @@
+{
+  "metadata": {
+    "version": "cn-tariffs-v2",
+    "generated_at": "2026-08-06",
+    "currency": "CNY",
+    "unit": "micro_rmb_per_kwh",
+    "sources": [
+      "https://www.95598.cn/omg-static//omg-static/99304241763013365914101929287974.pdf",
+      "https://m.bjx.com.cn/mnews/20260703/1502780.shtml",
+      "沪发改价管﹝2022﹞50号"
+    ],
+    "notes": [
+      "All prices are for large industrial electricity (大工业用电)",
+      "Time periods use China Standard Time (UTC+8)",
+      "Summer rates apply July-September; winter rates January/December in some regions",
+      "Prices include government funds and surcharges; exclude demand charges"
+    ]
+  },
+  "regions": {
+    "cn-east": {
+      "name": "华东电网（上海/江苏/浙江/安徽/福建）",
+      "base_price_micro": 660000,
+      "seasons": {
+        "summer": {
+          "months": [7, 8, 9],
+          "periods": [
+            {
+              "name": "尖峰",
+              "start_hour": 19,
+              "end_hour": 21,
+              "price_micro": 1120000,
+              "multiplier": 1.70
+            },
+            {
+              "name": "午间深谷",
+              "start_hour": 11,
+              "end_hour": 14,
+              "price_micro": 290000,
+              "multiplier": 0.44,
+              "note": "Solar duck curve - high PV generation"
+            },
+            {
+              "name": "高峰",
+              "hours": [[8, 11], [14, 19], [21, 22]],
+              "price_micro": 900000,
+              "multiplier": 1.36
+            },
+            {
+              "name": "平段",
+              "hours": [[7, 8], [22, 23]],
+              "price_micro": 660000,
+              "multiplier": 1.00
+            },
+            {
+              "name": "低谷",
+              "start_hour": 23,
+              "end_hour": 7,
+              "price_micro": 410000,
+              "multiplier": 0.62
+            }
+          ]
+        },
+        "winter": {
+          "months": [1, 12],
+          "periods": [
+            {
+              "name": "尖峰",
+              "hours": [[18, 21]],
+              "price_micro": 1050000,
+              "multiplier": 1.59
+            },
+            {
+              "name": "高峰",
+              "hours": [[8, 11], [13, 18], [21, 22]],
+              "price_micro": 870000,
+              "multiplier": 1.32
+            },
+            {
+              "name": "平段",
+              "hours": [[7, 8], [11, 13], [22, 23]],
+              "price_micro": 660000,
+              "multiplier": 1.00
+            },
+            {
+              "name": "低谷",
+              "start_hour": 23,
+              "end_hour": 7,
+              "price_micro": 430000,
+              "multiplier": 0.65
+            }
+          ]
+        },
+        "shoulder": {
+          "months": [2, 3, 4, 5, 6, 10, 11],
+          "periods": [
+            {
+              "name": "高峰",
+              "hours": [[8, 11], [13, 22]],
+              "price_micro": 850000,
+              "multiplier": 1.29
+            },
+            {
+              "name": "平段",
+              "hours": [[7, 8], [11, 13], [22, 23]],
+              "price_micro": 660000,
+              "multiplier": 1.00
+            },
+            {
+              "name": "低谷",
+              "start_hour": 23,
+              "end_hour": 7,
+              "price_micro": 450000,
+              "multiplier": 0.68
+            }
+          ]
+        }
+      }
+    },
+    "cn-north": {
+      "name": "华北电网（北京/天津/河北/山东/山西/内蒙古）",
+      "base_price_micro": 620000,
+      "note": "Similar structure, slightly lower base; Inner Mongolia has lower rates due to local generation"
+    },
+    "cn-south": {
+      "name": "南方电网（广东/广西/云南/贵州/海南）",
+      "base_price_micro": 680000,
+      "note": "Guangdong higher due to demand; Yunnan/Guizhou lower due to hydro"
+    },
+    "cn-northeast": {
+      "name": "东北电网（辽宁/吉林/黑龙江）",
+      "base_price_micro": 580000,
+      "note": "Lower industrial rates; winter heating load creates evening peaks"
+    },
+    "cn-northwest": {
+      "name": "西北电网（陕西/甘肃/青海/宁夏/新疆）",
+      "base_price_micro": 480000,
+      "note": "Lowest rates due to abundant wind/solar/coal; high renewable share"
+    },
+    "cn-central": {
+      "name": "华中电网（河南/湖北/湖南/江西/四川/重庆）",
+      "base_price_micro": 600000,
+      "note": "Sichuan/Chongqing have high hydro share, lower summer rates"
+    }
+  },
+  "residential_reference": {
+    "tier1_price_micro": 540000,
+    "tier2_price_micro": 590000,
+    "tier3_price_micro": 840000,
+    "note": "Shanghai residential stepped rates for reference"
+  },
+  "cloud_api_reference": {
+    "note": "For comparison - LLM API pricing per million tokens",
+    "providers": {
+      "doubao-pro-32k": {"input_micro_per_million": 800, "output_micro_per_million": 2000},
+      "qwen-plus": {"input_micro_per_million": 800, "output_micro_per_million": 2000},
+      "deepseek-chat": {"input_micro_per_million": 1000, "output_micro_per_million": 2000},
+      "gpt-4o-mini": {"input_micro_per_million": 1000, "output_micro_per_million": 4000},
+      "claude-35-haiku": {"input_micro_per_million": 6000, "output_micro_per_million": 30000},
+      "gpt-4o": {"input_micro_per_million": 180000, "output_micro_per_million": 720000}
+    }
+  }
+}

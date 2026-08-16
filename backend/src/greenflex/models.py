@@ -23,8 +23,23 @@ class ModelRecord(Base):
     output_rate_micro_rmb_per_million: Mapped[int] = mapped_column(Integer)
     estimated_tokens_per_second: Mapped[int] = mapped_column(Integer)
     estimated_energy_micro_wh_per_1k_output: Mapped[int] = mapped_column(Integer)
+    recommended_batch_size: Mapped[int] = mapped_column(Integer, server_default="1", default=1)
+    is_task_classifier: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    official_data_source: Mapped[str | None] = mapped_column(String(512), nullable=True)
     digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # --- Energy data provenance metadata (L1-L3 + insufficient only) ---
+    energy_data_provenance: Mapped[str] = mapped_column(
+        String(24), default="insufficient_data", server_default="insufficient_data"
+    )
+    energy_data_source: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    energy_confidence_bps: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    reference_gpu_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    parameter_count_b: Mapped[float | None] = mapped_column(nullable=True)
+    quantization_bits: Mapped[int | None] = mapped_column(nullable=True)
+    architecture_family: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class QuoteRecord(Base):
@@ -155,5 +170,168 @@ class AuditEventRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ModelTaskProfileRecord(Base):
+    """Statistical profile of a model on a specific task type."""
+
+    __tablename__ = "model_task_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "model_id",
+            "task_type",
+            "complexity_level",
+            "profile_version",
+            name="uq_profile_model_task_version",
+        ),
+        Index("ix_profile_model", "model_id"),
+        Index("ix_profile_task", "task_type", "complexity_level"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    model_id: Mapped[str] = mapped_column(ForeignKey("model_catalog.id"))
+    task_type: Mapped[str] = mapped_column(String(32))
+    complexity_level: Mapped[str] = mapped_column(String(16))
+    sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    avg_quality_score_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality_std_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_output_tokens_per_1k_input: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_latency_ms_per_1k_output: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_energy_micro_wh_per_1k_output: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_rate_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profile_version: Mapped[str] = mapped_column(String(64))
+    provenance: Mapped[str] = mapped_column(String(24), default="simulated")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RecommendationDecisionRecord(Base):
+    """Audit record of each recommendation decision (no prompts stored)."""
+
+    __tablename__ = "recommendation_decisions"
+    __table_args__ = (
+        Index("ix_recommendation_tenant", "tenant_id"),
+        Index("ix_recommendation_created", "created_at"),
+        Index("ix_recommendation_request_hash", "request_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    recommended_model_id: Mapped[str] = mapped_column(ForeignKey("model_catalog.id"))
+    recommended_tier: Mapped[str] = mapped_column(String(24))
+    recommended_mode: Mapped[str] = mapped_column(String(24))
+    confidence_bps: Mapped[int] = mapped_column(Integer)
+    quality_risk_level: Mapped[str] = mapped_column(String(16))
+    estimated_energy_micro_wh: Mapped[int] = mapped_column(Integer)
+    estimated_price_micro_rmb: Mapped[int] = mapped_column(Integer)
+    estimated_carbon_micro_g: Mapped[int] = mapped_column(Integer)
+    estimated_wait_seconds: Mapped[int] = mapped_column(Integer)
+    estimated_execution_seconds: Mapped[int] = mapped_column(Integer)
+    reason_codes_json: Mapped[str] = mapped_column(Text)
+    alternatives_json: Mapped[str] = mapped_column(Text)
+    policy_version: Mapped[str] = mapped_column(String(64))
+    profile_version: Mapped[str] = mapped_column(String(64))
+    provenance: Mapped[str] = mapped_column(String(24), default="simulated")
+    shadow_mode: Mapped[bool] = mapped_column(Boolean, default=True)
+    user_override_model_id: Mapped[str | None] = mapped_column(
+        ForeignKey("model_catalog.id"), nullable=True
+    )
+    override_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 def model_to_seed_values(item: dict[str, Any]) -> dict[str, Any]:
     return item
+
+
+class GpuEnergyProfileRecord(Base):
+    """Per-GPU energy efficiency profile with calibration coefficients.
+
+    The efficiency_factor normalizes benchmark data from a reference GPU
+    to the user's actual GPU. A factor of 1.0 means same efficiency as
+    the reference; <1.0 means more efficient (less energy per token).
+    """
+
+    __tablename__ = "gpu_energy_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    gpu_model: Mapped[str] = mapped_column(String(64), unique=True)
+    gpu_uuid: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tdp_watts: Mapped[int | None] = mapped_column(nullable=True)
+    memory_bandwidth_gbps: Mapped[float | None] = mapped_column(nullable=True)
+    compute_tflops_fp16: Mapped[float | None] = mapped_column(nullable=True)
+    efficiency_factor: Mapped[float] = mapped_column(default=1.0, server_default="1.0")
+    calibration_sample_count: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_calibrated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    calibration_provenance: Mapped[str] = mapped_column(
+        String(24), default="factory_spec", server_default="factory_spec"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ModelEnergyBenchmarkRecord(Base):
+    """External benchmark dataset entries (Watt Counts, JouleBench, TokenPowerBench, etc.).
+
+    These provide L2 (exact model-GPU match) and L3 (cross-GPU normalized)
+    energy data for models the user cannot run locally.
+    """
+
+    __tablename__ = "model_energy_benchmarks"
+    __table_args__ = (
+        Index("ix_benchmark_model_family", "model_family", "parameter_count_b"),
+        Index("ix_benchmark_gpu", "gpu_model"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    model_family: Mapped[str] = mapped_column(String(64))
+    parameter_count_b: Mapped[float] = mapped_column()
+    quantization_bits: Mapped[int | None] = mapped_column(nullable=True)
+    gpu_model: Mapped[str] = mapped_column(String(64))
+    gpu_architecture: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    avg_power_watts: Mapped[float] = mapped_column()
+    throughput_tokens_per_second: Mapped[float] = mapped_column()
+    energy_joules_per_token: Mapped[float] = mapped_column()
+    energy_wh_per_1k_output: Mapped[float] = mapped_column()
+    batch_size: Mapped[int | None] = mapped_column(nullable=True)
+    serving_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    dataset_source: Mapped[str] = mapped_column(String(64))
+    dataset_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    provenance_tier: Mapped[str] = mapped_column(
+        String(24), default="l2_benchmark_match", server_default="l2_benchmark_match"
+    )
+    confidence_bps: Mapped[int] = mapped_column(default=7000, server_default="7000")
+    measurement_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    raw_reference_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CarbonIntensityCacheRecord(Base):
+    """Cached real-time grid carbon intensity with TTL.
+
+    Stores data from Electricity Maps / WattTime / DynLCA APIs.
+    When cache expires or API fails, system falls back to synthetic signals.
+    """
+
+    __tablename__ = "carbon_intensity_cache"
+    __table_args__ = (
+        UniqueConstraint("region_code", "interval_start", name="uq_carbon_region_interval"),
+        Index("ix_carbon_region_time", "region_code", "interval_start"),
+        Index("ix_carbon_expires", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    region_code: Mapped[str] = mapped_column(String(16))
+    zone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    interval_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    carbon_g_per_kwh: Mapped[int] = mapped_column()
+    renewable_share_bps: Mapped[int | None] = mapped_column(nullable=True)
+    power_mix_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data_source: Mapped[str] = mapped_column(String(32))
+    data_source_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provenance: Mapped[str] = mapped_column(
+        String(24), default="estimated", server_default="estimated"
+    )
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

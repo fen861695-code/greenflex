@@ -1,10 +1,10 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { FileJson2, FileUp, Upload } from 'lucide-react'
+import { FileJson2, FileUp, Leaf, Upload, ArrowRight } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
-import { api, apiMessage, type ModelTier, type QuoteOption } from '../api/client'
+import { api, apiMessage, type CarbonCalendarData, type ModelTier, type QuoteOption } from '../api/client'
 import { ErrorState } from '../components/PageState'
 import { PageHeader } from '../components/PageHeader'
 import { ProvenanceBadge } from '../components/ProvenanceBadge'
@@ -49,6 +49,29 @@ export function BatchOrderPage() {
   const selectedFile = watch('file')?.[0]
   const useExactModel = watch('useExactModel')
   const flexible = watch('flexible')
+
+  const carbonHint = useQuery({
+    queryKey: ['carbon-hint'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/signals/calendar', {
+        params: { query: { days: 7 } },
+      })
+      if (error) throw new Error(apiMessage(error))
+      return data as CarbonCalendarData
+    },
+    enabled: flexible,
+  })
+
+  const bestGreenTime = (() => {
+    if (!carbonHint.data) return null
+    const all = carbonHint.data.days.flatMap((d) => d.hours.map((h) => ({ ...h, date: d.date })))
+    const best = all.reduce((a, b) => (a.carbon_g_per_kwh < b.carbon_g_per_kwh ? a : b))
+    const worst = all.reduce((a, b) => (a.carbon_g_per_kwh > b.carbon_g_per_kwh ? a : b))
+    const saving = worst.carbon_g_per_kwh > 0
+      ? Math.round((1 - best.carbon_g_per_kwh / worst.carbon_g_per_kwh) * 100)
+      : 0
+    return { best, saving }
+  })()
 
   const quoteMutation = useMutation({
     mutationFn: async (values: BatchForm) => {
@@ -125,6 +148,20 @@ export function BatchOrderPage() {
           </button>
         </aside>
       </form>
+      {flexible && bestGreenTime && (
+        <Link to="/carbon" className="carbon-hint-banner">
+          <div className="carbon-hint-icon"><Leaf size={16} /></div>
+          <div className="carbon-hint-text">
+            <strong>绿色调度已开启</strong>
+            <span>
+              最清洁时段 {bestGreenTime.best.date.slice(5)} {String(bestGreenTime.best.hour).padStart(2, '0')}:00
+              （{bestGreenTime.best.carbon_g_per_kwh} g/kWh），比高峰时段省 {bestGreenTime.saving}% 碳排放。
+              查看完整碳信号地图 →
+            </span>
+          </div>
+          <ArrowRight size={16} className="carbon-hint-arrow" />
+        </Link>
+      )}
       {message && <ErrorState message={message} />}
       <QuoteOptions
         options={quotes}
